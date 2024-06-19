@@ -40,5 +40,5 @@
 # (among others).
 
 cxai/*.py linguist-vendored=false
-dataprep/*.ipynb linguist-generated=true
+*.ipynb linguist-generated=true
 
