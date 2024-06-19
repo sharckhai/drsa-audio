@@ -6,7 +6,7 @@ Disentangeling explanations for neural netwoer descicions on audio data.
 - Standard attribution technique to explain model descicions on a local basis with Layerwise-Relevance Propagation (LRP) [[2]](#2)
 - Implementation of DIsentangled Relevant Subspace Analysis (DRSA) [[3]](#3) to decompose the explanation on a concept basis, i.e. extracting semantically richer sub-explanations that reassemble the standard explanation
 
-Results are provided at https://sharkhai/github.io/drsa-audio-results/
+Results are provided at [https://sharkhai/github.io/drsa-audio-results/](https://sharckhai.github.io/drsa-audio-results/)
 
 ## Further work
 - Notebooks will follow
