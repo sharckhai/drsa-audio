@@ -1,5 +1,5 @@
 # DRSA-AUDIO
-Disentangled explanations for neural network descicions on audio data.
+Disentangled explanations for neural network predictions on audio data.
 
 ## Description
 - CNN model to perform music genre classification on the GTZAN dataset [[1]](#1)
