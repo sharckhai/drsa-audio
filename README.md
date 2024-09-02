@@ -2,7 +2,7 @@
 Disentangled explanations for neural network predictions on audio data.
 
 ## Description
-- CNN model to perform music genre classification on the GTZAN dataset [[1]](#1)
+- Code to train a CNN to perform music genre classification on the GTZAN dataset [[1]](#1)
 - Relevance attribution with Layerwise-Relevance Propagation (LRP) [[2]](#2)
 - Implementation of Disentangled Relevant Subspace Analysis (DRSA) [[3]](#3) to decompose the standard explanation into semantically rich sub-explanations that reassemble the standard explanation
 
@@ -12,17 +12,19 @@ Results are provided at [https://sharkhai/github.io/drsa-audio-results/](https:/
 - Notebooks will follow
 
 ## Installation
+- Install required packages with
+
+```bash
+pip install -r requirements.txt
+```
+
 - Install setup.py in editable mode
 
 ```bash
 pip install -e setup.py
 ```
 
-- Install required packages with
 
-```bash
-pip install -r requirements.txt
-```
 
 
 ## References

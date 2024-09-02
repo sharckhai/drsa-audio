@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-#import cv2
+import cv2
 
 
 class Flipper:
@@ -130,10 +130,8 @@ class Flipper:
         
         
         elif self.perturbation_mode == 'inpainting':
-            # NOTE: to use inpainting install open-cv and uncomment the code vlock below
-            pass
 
-            """# cv2.inpaint expects the patches to inpaint in mask filled with ones else zero
+            # cv2.inpaint expects the patches to inpaint in mask filled with ones else zero
             masks = torch.abs(masks_copy - 1)
             inpainted_images = []
             
@@ -163,7 +161,7 @@ class Flipper:
 
                 inpainted_images.extend(torch.tensor(inpainted_image[None], dtype=torch.float32, device=self.device).requires_grad_(False))
 
-            return torch.stack(inpainted_images, dim=0).reshape(self.batch_size, self.num_channels, self.height, self.width).to(self.device)"""
+            return torch.stack(inpainted_images, dim=0).reshape(self.batch_size, self.num_channels, self.height, self.width).to(self.device)
 
             
         else:
