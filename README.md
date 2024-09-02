@@ -1,12 +1,12 @@
 # DRSA-AUDIO
-Disentangeling explanations for neural netwoer descicions on audio data.
+Disentangled explanations for neural network predictions on audio data.
 
 ## Description
-- CNN model to perform music genre classification of the GTZAN dataset [[1]](#1)
-- Standard attribution technique to explain model descicions on a local basis with Layerwise-Relevance Propagation (LRP) [[2]](#2)
-- Implementation of DIsentangled Relevant Subspace Analysis (DRSA) [[3]](#3) to decompose the explanation on a concept basis, i.e. extracting semantically richer sub-explanations that reassemble the standard explanation
+- CNN model to perform music genre classification on the GTZAN dataset [[1]](#1)
+- Relevance attribution with Layerwise-Relevance Propagation (LRP) [[2]](#2)
+- Implementation of Disentangled Relevant Subspace Analysis (DRSA) [[3]](#3) to decompose the standard explanation into semantically rich sub-explanations that reassemble the standard explanation
 
-Results are provided at https://sharkhai/github.io/drsa-audio-results/
+Results are provided at [https://sharkhai/github.io/drsa-audio-results/](https://sharckhai.github.io/drsa-audio-results/)
 
 ## Further work
 - Notebooks will follow
