@@ -11,6 +11,8 @@ __pycache__/
 /dat/
 */dat/*
 
+# other files
+cluster/
 
 # Distribution / packaging
 .Python
@@ -69,7 +71,7 @@ docs/_build/
 .pybuilder/
 target/
 
-# Jupyter Notebook
+# Jupyter Notebook checkpoints
 .ipynb_checkpoints
 
 # IPython

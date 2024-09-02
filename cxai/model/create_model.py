@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 import torch.nn as nn
 
@@ -23,25 +22,16 @@ class VGGType(torch.nn.Module):
                 ):
         r"""
         Receive arguments and initialise the  NN.
-
-        Parameters:
-        ----------
-        n_filters: Tuple[int, int, int, int]
-            number of filters per convolutional block
-        conv_kernel: Tuple[int, int]
-            Kernel size for convolutional layers
-        pool_kernels: Tuple[Tuple[int, int], Tuple[int, int], ...]
-            Tuple of Tuples with kernel sizes for maxpool layers
-        n_dense: int
-            number of neurons in dense layers
-        dropout: float
-            dropout in dense layers (classification head)       
-        block_depth: int
-            number of convolutional layers in each block
-        padding: int or string
-            padding for conv filters
-        stride: int
-            stride of convolution
+        -----
+        Args:
+            n_filters       (tuple): number of filters per convolutional block
+            conv_kernel     (tuple): Kernel size for convolutional layers
+            pool_kernels    (tuple): Tuple of Tuples with kernel sizes for maxpool layers
+            n_dense         (int): number of neurons in dense layers
+            dropout         (float): dropout in dense layers (classification head)       
+            block_depth     (int): number of convolutional layers in each block
+            padding         (int): padding for conv filters
+            stride          (int): stride of convolution
         """
         
         super(VGGType, self).__init__()
@@ -74,12 +64,8 @@ class VGGType(torch.nn.Module):
         # extract features
         x = self.features(x)
 
-        # TODO: hardcode flat features
-
-        # reshape activation map to flat input for dense layers
-        x = x.view(-1, num_flat_features(x))   ################################# HARDCODE THIS !!!!!!!!!!!!!!!!!!!
-        #print(num_flat_features(x))
-        #x = x.view(-1, 2048)
+        # NOTE: hardcode flat features, the function num_flat_features's only purpose is for grid search of best model architecture
+        x = x.view(-1, num_flat_features(x)) #x.view(-1, 2048)
 
         # feed forward
         logits = self.classifier(x)
@@ -90,23 +76,15 @@ class VGGType(torch.nn.Module):
 
 def get_conv_block_layers(n_in, n_out, block_depth=2, kernel: tuple = (3,3), stride: int = 1, padding: int = 1, padding_mode='zeros', conv_bn=True):
     r"""
-    Creates list of layers for a convolutional block. 
-    Conv2d -> BatchNorm2d -> ReLU
-
-    Parameters:
-    ----------
-    n_in: int
-        input dimension
-    n_out: int
-        out dimension (number of conv filters)
-    block_depth: int
-        number of convolutional layers in each block
-    kernel: Tuple[int, int]
-        kernel size of convolutional layers 
-    padding: int or string
-        padding for conv filters
-    stride: int
-        stride of convolution
+    Creates list of layers for a convolutional block (= Conv2d -> BatchNorm2d -> ReLU)
+    -----
+    Args:
+        n_in (int): input dimension
+        n_out (int): out dimension (number of conv filters)
+        block_depth (int): number of convolutional layers in each block
+        kernel (tuple): kernel size of convolutional layers 
+        padding (int): padding for conv filters
+        stride (int): stride of convolution
     """
     layers = []
     for i in range(block_depth):
@@ -121,18 +99,13 @@ def get_conv_block_layers(n_in, n_out, block_depth=2, kernel: tuple = (3,3), str
 def get_dense_block_layers(n_in, n_out, dropout, depth=2, dense_bn=True, **kwargs):
     r"""
     Creates list of layers for the classification head. 
-    Linear -> BatchNorm2d -> ReLU (-> Dropout)
-
-    Parameters:
-    ----------
-    n_in: int
-        input dimension
-    n_out: int
-        out dimension (number of conv filters)
-    dropout: int
-        dropout
-    depth: int
-        number of dense layers in dense block
+    Each dense block is composed as Linear -> BatchNorm2d -> ReLU (-> Dropout).
+    -----
+    Args:
+        n_in    (int): input dimension
+        n_out   (int): out dimension (number of conv filters)
+        dropout (int): dropout
+        depth   (int): number of dense layers in dense block
     """
     layers = []
     # create layers and add to layers
@@ -160,27 +133,17 @@ def get_out_shape(input_size=(128,216),
     r"""
     Calculates the output shape of the feature extractor.
 
-    Parameters:
-    ----------
-    input_size: Tuple[int, int]
-        Size of input image
-    conv_kernel: Tuple[int, int]
-        Kernel size for convolutional layers
-    pool_kernels: Tuple[Tuple[int, int], Tuple[int, int], ...]
-        Tuple of Tuples with kernel sizes for maxpool layers
-    out_filters: int
-        Number of filters in last conolutional layer
-    padding: int or string
-        padding for conv filters
-    stride: int
-        stride of convolution
-    block_depth: int
-        number of convolutional layers in each block
-
+    -----
+    Args:
+        input_size (tuple): Size of input image
+        conv_kernel     (tuple): Kernel size for convolutional layers
+        pool_kernels    (tuple): Tuple of Tuples with kernel sizes for maxpool layers
+        out_filters (int): Number of filters in last conolutional layer      
+        block_depth     (int): number of convolutional layers in each block
+        padding         (int): padding for conv filters
+        stride          (int): stride of convolution
     Returns:
-    -------
-    conv_out_shape: int
-        Shape of flattend output tensor of last convolutional layer
+        conv_out_shape (int): Shape of flattend output tensor of last convolutional layer
     """
 
     # transform padding to integer if str
@@ -207,15 +170,11 @@ def num_flat_features(x):
     r"""
     Calculates flattend size of input tensor x for reshaping into flat tensor
 
-    Parameters:
-    ----------
-    x: torch.Tensor
-        Input tensor to dense layers of NN
-
+    -----
+    Args:
+        x (torch.Tensor): Input tensor to dense layers of NN
     Returns:
-    -------
-    num_features: int
-        number of features of flattend input tensor to classifier
+        num_features (int): number of features of flattend input tensor to classifier
     """
     size = x.size()[1:]  # all dimensions except the batch dimension
 
@@ -224,50 +183,3 @@ def num_flat_features(x):
         num_features *= s
         
     return num_features
-
-
-
-
-"""class ConvBlock(nn.Module):
-    def __init__(self, n_in, n_out, block_depth=2, kernel: int = 3, stride: int = 1, padding: int = 1, dilation: int = 1, padding_mode='zeros'):
-        super().__init__()
-        
-        layers = []
-        for i in range(block_depth):
-            layers.extend([
-                nn.Conv2d(in_channels=n_in if i==0 else n_out, out_channels=n_out, kernel_size=kernel, stride=stride, padding=padding, dilation=dilation, padding_mode=padding_mode),
-                nn.BatchNorm2d(num_features=n_out),
-                nn.ReLU(),
-            ])
-
-        # create sequential model of this block
-        self.block = nn.Sequential(*layers)
-        
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class DenseBlock(nn.Module):
-    def __init__(self, n_in, n_out, dropout, depth=2):
-        super().__init__()
-
-        layers = []
-        # create layers and add to layers
-        for i in range(depth):
-            layers.extend([
-                nn.Linear(in_features=n_in if i==0 else n_out, out_features=n_out),
-                nn.BatchNorm1d(n_out),
-                nn.ReLU(),
-            ])
-            # add dropout layer if wanted
-            if dropout:
-                layers.extend([nn.Dropout(dropout)])
-
-        # create sequential model of this block
-        self.classifier = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.classifier(x)"""
-
-

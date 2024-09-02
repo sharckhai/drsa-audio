@@ -1,5 +1,3 @@
-import os
-import sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -7,26 +5,15 @@ import matplotlib.pyplot as plt
 
 import zennit
 from zennit.canonizers import SequentialMergeBatchNorm
-from zennit.attribution import Gradient
-from zennit.types import Linear, Convolution, Activation, BatchNorm
-from zennit.rules import Epsilon, ZPlus, Norm, Pass, WSquare, Gamma, Flat, AlphaBeta, ZBox
-from zennit.composites import SpecialFirstLayerMapComposite, NameMapComposite, NameLayerMapComposite, LayerMapComposite, MixedComposite
-from zennit.core import Stabilizer
-from zennit.core import BasicHook, Hook, stabilize
-from zennit.rules import NoMod
-import copy
+from zennit.types import Linear, Convolution, Activation
+from zennit.rules import Epsilon, ZPlus, Norm, Pass, WSquare, Gamma, Flat, AlphaBeta
+from zennit.composites import SpecialFirstLayerMapComposite, NameMapComposite, NameLayerMapComposite
 
 from cxai.xai.explain.attribute import compute_relevances
 from cxai.xai.pixelflipping.core import Flipper
 from cxai.utils.visualization import plot_aupcs
 
-"""from attribute import compute_relevances
-from core import Flipper
-from custom_xai import MTMRule
-from utils import HiddenPrints"""
 
-
-# define rula mapper
 rule_mapper = {
     'epsilon': Epsilon,
     'gamma': Gamma,
@@ -36,12 +23,7 @@ rule_mapper = {
     'wsquare': WSquare,
     'pass': Pass,
     'norm': Norm,
-    #'mtm': MTMRule,
 }
-
-
-# TODO: return one representative example PER CONFIGURATION, concat them and return to plot relevance heatmaps afterwards
-
 
 
 class PixelFlipping:
@@ -52,33 +34,20 @@ class PixelFlipping:
                  perturbation_size: int = 8,
                  perturbation_mode: str = 'constant',
                  num_classes: int = 10,
-                 #modified: bool = False,
                  data_normaliaztion: str = 'normalized',
                  device: torch.device = torch.device('cpu'),
                  ) -> None:
-        """
-        lrp conf
-        dict with first layer, dense etc and values
-        mapper to map rules to layers?  OPTIONAL
-
-        Parameters:
-        -----------
-        model: nn.Sequential
-            model to perform attribution technique on
-        input_batch: torch.Tensor
-            Batched inputs (mel-specs) with shape (batch, channel, heightm width). 
-            NOTE: Classes have to represented by the same number of samples and have to be ordered in consecutive, increasing order by class index!
-        forward_func: callable
-            Represents the model and ouputs prediction scores (Logits).
-        pixel_flipper: PixelFlipping
-            Instance of PixelFlipping class which performs the pixel flipping for one specific attribution configuration.
-        modified_model: bool
-            Boolean to indicate if model has previously been transformed to have a reverse logsumexp layer at the end.
-        
-        Returns:
-        --------
-        bla
-        
+        r"""
+        Performs pixel flipping evaluationacross several configurations
+        NOTE: Classes have to represented by the same number of samples and have to be ordered in consecutive, increasing order by class index!
+        -----
+        Args:
+            model               (nn.Sequential): model to perform attribution technique on
+            input_batch         (torch.Tensor): Batched inputs (mel-specs) with shape (batch, channel, heightm width). 
+            perturbation_size   (int): Size of perturbation patches
+            perturbation_mode   (str): Defines how to flip pixels (constant, random)
+            num_classes         (int): Classes present in the data
+            data_normaliaztion  (str): Important for inpainting
         """
         self.device = device
         self.input_batch = input_batch.to(self.device)
@@ -105,27 +74,10 @@ class PixelFlipping:
                  plot: bool = True,
                  ):
         
+        r"""
+        Loops over the configurations and executes pixel flipping for each configuration.        
         """
-        Loops over the configurations and perform pixel flipping for each configuration.
 
-        Parameters:
-        -----------
-        configuration grid: list[dict[Tuple]]
-            A list of dicts with values for lrp rules. For name of rule refer to rule_mapper!
-            conf_grid = [
-                {'convloutional': ('gamma', 0.2), 'dense': ('epsilon', 1e-3), 'first_layer': ('flat',), 'name_map': (name_map,)},]
-
-            
-                
-        composites: list[zennit.composites]
-            Composites for eaech configuration. If provided, only provide names for each configuration in configuration grid.
-
-
-        Returns:
-        --------
-
-        
-        """
         # configurations for lrp
         self.canonizer = canonizer
         self.stabilizers = stabilizers
@@ -211,7 +163,6 @@ class PixelFlipping:
             (['classifier.4'], Epsilon(epsilon=eps)),
         ]
 
-
         composite_name_map = NameMapComposite(
             name_map=name_map,
             canonizers=[self.canonizer],
@@ -243,39 +194,6 @@ class PixelFlipping:
             (['classifier.3'], Epsilon(epsilon=eps)),
             (['classifier.6'], Epsilon(epsilon=eps)),
         ]
-
-
-        composite_name_map = NameMapComposite(
-            name_map=name_map,
-            canonizers=[self.canonizer],
-        )
-
-        return composite_name_map
-    
-    def _get_scaled_composite_toyNone(self, lrp_configuration):
-        # params for lrp
-        gamma = lrp_configuration['convolutional'][-1]
-        stab1 = 1e-7
-        stab2 = 1e-7
-        eps = lrp_configuration['dense'][-1]
-
-        name_map = [
-            # block 1
-            (['features.0'], Flat(stabilizer=stab1) if lrp_configuration['first_layer'][0] == 'flat' else WSquare(stabilizer=stab1)),
-            # block 2
-            (['features.3'], Gamma(gamma=gamma, stabilizer=stab2)),
-            # block 3
-            (['features.6'], Gamma(gamma=gamma/2, stabilizer=stab2)),
-            # last conv block
-            (['features.9'], Gamma(gamma=gamma/2, stabilizer=stab2)),
-
-            (['features.12'], Gamma(gamma=gamma/4, stabilizer=stab2)),
-            # fc block
-            (['classifier.0'], Epsilon(epsilon=eps)),
-            (['classifier.2'], Epsilon(epsilon=eps)),
-            (['classifier.4'], Epsilon(epsilon=eps)),
-        ]
-
 
         composite_name_map = NameMapComposite(
             name_map=name_map,
@@ -323,10 +241,8 @@ class PixelFlipping:
         return composite
 
 
-
     def _get_name_map(self, lrp_configuration):
         
-        # construct name map if necessary
         name_map = []
 
         # add rule mapping for first layer
@@ -339,14 +255,11 @@ class PixelFlipping:
 
 
     def _get_rule(self, layertype, lrp_configuration):
-        """
-        returns a zennit rule
-
-        Parameters:
-        ---------
-        layertype: str
-            Can be layertype of special layer name for rule mapping.
-
+        r"""
+        Returns a zennit rule.
+        -----
+        Args:
+            layertype (str): Can be layertype of special layer name for rule mapping.
         """
 
         # check if rule is valid
@@ -392,9 +305,9 @@ class PixelFlipping:
                 continue
             else:
                 conf += ruletype + '_' + str(lrp_configuration[key][1]) + '_' 
-        return conf#[:-1]
+        
+        return conf
     
-
 
     def plot_aupcs(self, flips_per_perturbation_step, title='EpsGammaWSquare'):
 

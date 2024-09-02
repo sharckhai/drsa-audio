@@ -1,63 +1,38 @@
 import os
-import sys
 import random
-import argparse
 import numpy as np
 import torch
-import torch.nn as nn
-import matplotlib.pyplot as plt
 import pickle
 from tqdm import tqdm
 from scipy.stats import ortho_group
 
-from zennit.composites import NameMapComposite
-from zennit.rules import AlphaBeta, WSquare, Gamma, Epsilon, Flat
+from zennit.rules import WSquare, Gamma, Epsilon
 
 from cxai.model.create_model import VGGType
 from cxai.xai.pixelflipping.core import Flipper
 from cxai.xai.pixelflipping.pf import PixelFlipping
-from cxai.xai.pixelflipping.prep import get_data_new_last
+from cxai.xai.pixelflipping.prep import get_data_main
 from cxai.xai.explain.explainer import HeatmapGenerator
-from cxai.utils.all import get_best_run, HiddenPrints
+from cxai.utils.evaluation import get_best_run
 from cxai.utils.constants import CLASS_IDX_MAPPER, CLASS_IDX_MAPPER_TOY
 
-"""from core import Flipper
-from main import PixelFlipping
-
-from explainer import HeatmapGenerator
-from utils import get_best_run
-
-from create_model import VGGType
-from prep import get_data_new_last
-
-from constants import CLASS_IDX_MAPPER, CLASS_IDX_MAPPER_TOY"""
 
 
 def concept_flipping(model, input_batch, name_map, layer_idx, path_to_U, num_concepts=4, standard_r=False, case=None, device=torch.device('cpu')):
-    """
+    r"""
     Function to perform concept patch flipping if model and optimized projection matrices are provided. 
     Class cf_core performs flipping, this function loads the projection matrix and calculates mean scores.
-    
-    
+    -----    
     Args:
-    -----
-    model: torch.nn.Sequential
-        Neural network to perform concept patch flipping on
-    input_batch: torch.Tensor
-        Balanced tensor of datasamples of each class in consecutiove order
-    name_map: dict
-        name_map fpr zennit composite
-    layer_idx: int
-        Layer index to insert projection matrix Q
-    path_to_Qs: str
-        Path to root folder that contains the optimized projection matrices
-
+        model       (nn.Sequential): Neural network to perform concept patch flipping on
+        input_batch (torch.Tensor): Balanced tensor of datasamples of each class in consecutiove order
+        name_map    (dict): name_map fpr zennit composite
+        layer_idx   (int): Layer index to insert projection matrix Q
+        path_to_Qs  (str): Path to root folder that contains the optimized projection matrices
     Returns:
-    --------
-    aupc: float
-
-    aupc_per_class: np.ndarray
-    
+        aupc_scores_per_instance        (np.ndarray): AUPC scores
+        averaged_pertubed_predictions   (np.ndarray): Averaged prediction logits for plotting
+        flips_per_perturbation_step     (np.ndarray): Patches flipped at each step
     """
 
     if isinstance(input_batch, np.ndarray): input_batch = torch.tensor(input_batch)
@@ -88,12 +63,7 @@ def concept_flipping(model, input_batch, name_map, layer_idx, path_to_U, num_con
     subspace_heatmaps = torch.cat(subspace_heatmaps, dim=0)
     subspace_heatmaps = np.array(subspace_heatmaps.cpu())
 
-
-    return subspace_heatmaps
-
-    print(subspace_heatmaps.shape)
-
-    seperability = np.max(subspace_heatmaps,1).sum((-2,-1)) - np.max(subspace_heatmaps.sum((-2,-1)), 1)
+    #seperability = np.max(subspace_heatmaps,1).sum((-2,-1)) - np.max(subspace_heatmaps.sum((-2,-1)), 1)
 
     # init flipper
     flipper = Flipper(perturbation_size=16, device=device)
@@ -107,7 +77,7 @@ def concept_flipping(model, input_batch, name_map, layer_idx, path_to_U, num_con
 
      
 def interclass_concept_flipping(model, input_batch, name_map, path_to_U, case=None, standard_r=False, toy=False, num_concepts=4, device=torch.device('cpu')):
-    """
+    r"""
     Goal: 
     We want to know disentanglement power of the class specific concepts of a class.
     Since concepts of different classes look similar at first sight.
@@ -115,42 +85,18 @@ def interclass_concept_flipping(model, input_batch, name_map, path_to_U, case=No
     Solution:
     Generate subspace heatmaps for samples of a target class by aggregating subspace heatmaps generated with Q of each genre.
     We hope disentanglement, i.e. AUPC, is smallest for Q of target class.
-
-    ----------------------
-
-    Input batch is a balanced tensor of samples from each class in consecutive order, e.g., 100 x 128 x 128 (10 of each class)
-
-    Intuitive logic: Get subspaces of one class batch for Qs of all classes (loop), then continue with next class batch. (2 loops)
-
-    Better logic: explain whole batch num_classes times with Q of a single class. Change target function for zennit to attribut the right logits.
-    Resulting matrix: [n_classes, n_classes], right constellation on the diagonal (pop & pop etc.), in columns we have aupcs for genre propagated through all other subspaces.
-
-    Problem: heatmap generator is designed to generate heatmaps for a specific class (Which makes sense since Q is optimized for a specififc class)
-
-    ----------------------
-
-    
-    Args:
     -----
-    model: torch.nn.Sequential
-        Neural network to perform concept patch flipping on
-    input_batch: torch.Tensor
-        Balanced tensor of datasamples of each class in consecutiove order
-    name_map: dict
-        name_map fpr zennit composite
-    layer_idx: int
-        Layer index to insert projection matrix Q
-    path_to_Qs: str
-        Path to root folder that contains the optimized projection matrices
-
+    Args:
+        model       (nn.Sequential): Neural network to perform concept patch flipping on
+        input_batch (torch.Tensor): Balanced tensor of datasamples of each class in consecutiove order
+        name_map    (dict): name_map fpr zennit composite
+        layer_idx   (int): Layer index to insert projection matrix Q
+        path_to_Qs  (str): Path to root folder that contains the optimized projection matrices
     Returns:
-    --------
-    aupcs_per_class: np.ndarray
-        Shape: [n_classes, n_classes]
-        - Columns correspond to genre that got attributed
-        - Rows correspond to genre of projection matrix that got inserted
-        Order is accoriding to order in CLASS_IDX_MAPPER.
-    
+        aupcs_per_class (np.ndarray): Shape: [n_classes, n_classes]
+                                      - Columns correspond to genre that got attributed
+                                      - Rows correspond to genre of projection matrix that got inserted
+                                      Order is accoriding to order in CLASS_IDX_MAPPER
     """
 
     if isinstance(input_batch, np.ndarray): input_batch = torch.tensor(input_batch)
@@ -279,24 +225,14 @@ def cf_random_subspace(model, input_batch, name_map, layer_idx, dim, case=None, 
     return subspace_heatmaps
 
 
-"""    # flip whole batch (all classes)
-        #with HiddenPrints():
-        aupc_scores_per_instance, averaged_pertubed_predictions, flips_per_perturbation_step \
-            = flipper(forward_func, input_batch, subspace_heatmaps)
-
-    return aupc_scores_per_instance, averaged_pertubed_predictions, flips_per_perturbation_step"""
-
-
-
 def sample_random_Q(dim, device=torch.device('cpu')):
     Q = ortho_group.rvs(dim)
     return torch.tensor(Q, device=device)
 
 
-
 def perform_cf(model, input_batch, name_map, out, path=None, layer_idcs=[1,4,7,10,13], 
                num_concepts=[2,4,8,16], toy=False, prefix='', device=torch.device('cpu')):
-    """
+    r"""
     This function calculates the aupcs per class at different layers for different number of subspaces
 
     saves evaluation data to pickle files. pickle files are named after the configuration (concepts, layer_idx)
@@ -330,13 +266,9 @@ def perform_cf(model, input_batch, name_map, out, path=None, layer_idcs=[1,4,7,1
 
 def sep_and_peak(model, input_batch, name_map, out, path=None, layer_idcs=[1,4,7,10,13], 
                num_concepts=[2,4,8,16], toy=False, prefix='', device=torch.device('cpu')):
-    """
-    This function calculates the aupcs per class at different layers for different number of subspaces
-
-    saves evaluation data to pickle files. pickle files are named after the configuration (concepts, layer_idx)
-    and contain aupc scores per instance for each class.
-
-    -> AUPC array has shape [num_classes, samples_per_class]
+    r"""
+    Compute seperability and peakness.
+    NOTE: under development
     """
 
     dims = [32, 32, 64, 64, 128] if not toy else [8, 8, 16, 16, 16]
@@ -417,7 +349,7 @@ def frob(RU, num_concepts):
 
 
             
-
+# use for cuda
 def main():
 
     random.seed(42)
@@ -462,7 +394,7 @@ def main():
     ]
 
     # get input batch (whole validation set with 3 chunks per soundtrack) = 600 samples
-    input_batch, _ = get_data_new_last(path_to_data, fold=1, num_folds=5, samples_per_class=20, seed=42, num_chunks=3)
+    input_batch, _ = get_data_main(path_to_data, fold=1, num_folds=5, samples_per_class=20, seed=42, num_chunks=3)
 
     for opt in np.arange(0):
 

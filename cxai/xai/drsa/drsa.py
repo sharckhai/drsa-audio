@@ -1,7 +1,4 @@
 import os
-import sys
-import datetime
-import random
 from tqdm import tqdm
 import pickle
 import numpy as np
@@ -9,9 +6,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import ortho_group
-
 
 
 class SubspaceOptimizer:
@@ -28,17 +23,8 @@ class SubspaceOptimizer:
         self.U = nn.Parameter(U.detach()).to(self.device)
         self.obj_fn = objective_fn
         
-        #self.init_model(U)
-        #self.optimizer = torch.optim.SGD(self.model.parameters(), lr=learning_rate, maximize=True)
-        
         self.act_vecs = activation_vecs.to(self.device)
         self.ctx_vecs = context_vecs.to(self.device)
-
-
-    def init_model(self, U):
-        self.model = ProjectionMatrix(U, num_concepts=self.num_concepts)
-        self.model.to(self.device)
-        self.model.train()
 
 
     def run(self, steps=2000):
@@ -58,24 +44,6 @@ class SubspaceOptimizer:
             #self.U.grad = project_grad(self.U.grad, self.U)
 
             self.U = orthogonalize(self.U + self.U.grad)
-
-
-            """# propagate batch and obtain R_kn
-            R_kn = self.model(self.act_vecs, self.ctx_vecs)
-            obj = self.obj_fn(R_kn)
-
-            # grad ascent, compute gradients
-            obj.backward()
-
-            # project graient onto constrained space
-            #self.model.U.grad = project_grad(self.model.U.grad, self.model.U.data)
-
-            # take steo into the direction of projected gradients
-            self.optimizer.step()
-            self.optimizer.zero_grad()
-            
-            # orthogonalization
-            self.model.U.data = orthogonalize(self.model.U.data)"""
 
             obj_arr.append(obj.detach().cpu().numpy())
             
@@ -126,9 +94,6 @@ def generalized_fmean(x, p=0.5) -> torch.Tensor:
 def project_grad(gradient, U):
     """
     Projects the gradient onto the constrained space (orthogonal constraint)
-
-    Args
-    :torch.tensor 
     """
     return gradient - torch.matmul(torch.matmul(U.T, gradient), U.T)
 
@@ -148,23 +113,11 @@ def orthogonalize(U):
     return torch.matmul(U, M_inv)
 
 
-    """# compute singular value decomposition
-    U_svd, S, V_svd = torch.linalg.svd(UtU.cpu().double())
-    
-    # construct the inverse sUuare root matrix
-    UtU_inv_sUrt = torch.matmul(torch.matmul(U_svd, torch.diag(1.0 / torch.sart(S))), V_svd).to(U)
-
-    # update model parameters
-    return torch.matmul(U, UtU_inv_sqrt.float())"""
-
-
-
 def objective_fn(input):
     ### input.size(): (batch_size x num_concepts)
     x = generalized_fmean(input, 2)
     x = generalized_fmean(x, 0.5)
     return x
-
 
 
 class ProjectionMatrix(nn.Module):
@@ -189,9 +142,6 @@ class ProjectionMatrix(nn.Module):
         # it results contribution of each datapoint to each concept, shape: (num_concepts x batch)
         return F.relu(torch.sum(x, dim=-1))
     
-
-
-
 
 def main(activation_vecs, 
          context_vecs, 
@@ -239,11 +189,4 @@ def main(activation_vecs,
         drsa_optimizer.run(steps=steps)
 
     print('Done!')
-
-
-
-
-
-"""if __name__ == '__main__':
-    main()"""
 

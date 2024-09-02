@@ -4,23 +4,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from zennit.rules import Pass
+from zennit.rules import Pass, Epsilon
 from zennit.composites import NameMapComposite
 
-from cxai.model.modify_model import ProjectionModel2
-from cxai.xai.explain.attribute import lrp_output_modifier, compute_relevances
-from cxai.xai.explain.attribute import SubspaceFilter
+from cxai.model.modify_model import ProjectionModel
+from cxai.xai.explain.attribute import compute_relevances
+from cxai.xai.explain.attribute import SubspaceHook
 from cxai.utils.constants import CLASS_IDX_MAPPER, CLASS_IDX_MAPPER_TOY
 
 
-"""#from transform_model import ProjectionModel
-from attribute import lrp_output_modifier, compute_relevances, SubspaceFilter
-from constants import CLASS_IDX_MAPPER, CLASS_IDX_MAPPER_TOY"""
-
-
-
 class HeatmapGenerator:
-    """
+    r"""
     Class to generate standard heatmap and subspace heatmaps for a batch of samples of a target class. 
     """
 
@@ -31,31 +25,29 @@ class HeatmapGenerator:
                  sample_class: str,
                  num_concepts: int = 4,
                  layer_idx: int = 10,
-                 case: str = 'gtzan',
                  device: torch.device = torch.device('cpu'),
+                 case: str = None,
                  ):
         
         self.device = device
         self.num_concepts = num_concepts
         self.sample_class = sample_class
-        self.case = case
-        self.info = {}
-        self.CLASS_IDX_MAPPER = CLASS_IDX_MAPPER if self.case != 'toy' else CLASS_IDX_MAPPER_TOY
-        self.class_idx = self.CLASS_IDX_MAPPER[self.sample_class]
 
-        #self.model = ProjectionModel2(model, layer_idx, case=self.case)
-        self.model = model
-        self.composite = get_class_composite(U, name_map, self.num_concepts, layer_idx, device=device)
+        self.case = 'toy' if self.sample_class.endswith('1') or self.sample_class.endswith('2') else 'gtzan'
+        self.CLASS_IDX_MAPPER = CLASS_IDX_MAPPER if self.case=='gtzan' else CLASS_IDX_MAPPER_TOY
+
+        self.projectionmodel = ProjectionModel(model, layer_idx, U, self.num_concepts, case=self.case)
+        self.composite = get_class_composite(name_map, self.num_concepts, device=device)
+        self.class_idx = self.CLASS_IDX_MAPPER[self.sample_class]
+        self.info = {}
 
 
     def generate_subspace_heatmaps(self, input: torch.Tensor, scaled_output=False, concept_flipping=False, flip_all_classes=False):
-        """
+        r"""
         Samples in input batch get repeated num_concept+1 times to be able to attribute standard heatmap and all subspace heatmaps at once and in one pass.
-        
-        Args:
         -----
-        input: torch.Tensor
-            single input sample or batch
+        Args:
+            input (torch.Tensor): single input sample or batch
         """
         # input sample is repeated num_concepts + 1 times
         repeated_input_batch = input.clone().detach().to(self.device).repeat_interleave(self.num_concepts + 1, dim=0)
@@ -77,19 +69,19 @@ class HeatmapGenerator:
         subspace_heatmaps = heatmaps[:, 1:]
 
         # sort subspaces according to descending relevance
-        #subspace_heatmaps, subspace_relevances, mask = self.sort_subspaces(subspace_heatmaps)
+        subspace_heatmaps, subspace_relevances, mask = self.sort_subspaces(subspace_heatmaps)
 
         self.info['input'] = input.cpu().numpy()
         self.info['standard_heatmaps'] = standard_heatmaps
         self.info['standard_relevance'] = standard_heatmaps.sum(axis=(-2,-1)).flatten()
         self.info['subspace_heatmaps'] = subspace_heatmaps
-        #self.info['subspace_relevances'] = subspace_relevances
-        #self.info['mask'] = mask
+        self.info['subspace_relevances'] = subspace_relevances
+        self.info['mask'] = mask
 
 
     def obtain_heatmaps(self, input_batch, scaled_output: bool = False, flip_all_classes: bool = False) -> torch.Tensor:
 
-        return compute_relevances(self.model, input_batch, self.composite, scaled_output=scaled_output,
+        return compute_relevances(self.projectionmodel, input_batch, self.composite, scaled_output=scaled_output,
                                   class_idx=self.class_idx if not flip_all_classes else None, 
                                   num_classes=len(self.CLASS_IDX_MAPPER) if flip_all_classes else None)
 
@@ -97,7 +89,6 @@ class HeatmapGenerator:
     def sort_subspaces(self, subspace_heatmaps):
         
         batch = subspace_heatmaps.shape[0]
-
         # sort subspaces according to relevance
         # [batch, n_concepts, height, width]
         subspace_relevances = subspace_heatmaps.sum(axis=(-2,-1)).squeeze()
@@ -111,23 +102,25 @@ class HeatmapGenerator:
         return subspace_heatmaps, subspace_relevances, mask
 
 
-def get_class_composite(U, name_map, num_concepts, layer_idx, device=torch.device('cpu')):
-    """
+def get_class_composite(name_map, num_concepts, device=torch.device('cpu')):
+    r"""
     This function builds a NameMapComposite (zennit package) with the provided name_map the projection matrix associated with the defined layer_idx and class.
     The name_map defines which LRP rule is assigned to which layer of the model.
     """
     # init subsapce seperation rule CXai
     name_map_copy = name_map.copy()
 
-    #name_map_copy.append((['features.invprojection'], SubspaceHook(num_concepts, device=device)))
-    name_map_copy.append(([f'features.{layer_idx}'], SubspaceFilter(U, num_concepts, device=device)))
+    name_map_copy.append((['features.invprojection'], Epsilon()))
+    name_map_copy.append((['features.subspacefilter'], SubspaceHook(num_concepts, device=device)))
+    #name_map_copy.append(([f'features.filter'], sb()))
+    name_map_copy.append(([f'features.projection'], Epsilon()))
 
     return NameMapComposite(name_map=name_map_copy)
 
 
 
-'''def compute_subspace_relevances(act_vecs, ctx_vecs, Q, n_concepts=4):
-    """
+def compute_subspace_relevances(act_vecs, ctx_vecs, U, n_concepts=4):
+    r"""
     Computes subspace relevances for each sample in batch. Activation and context vectors have to be in shape [batch, N, d]
     """
 
@@ -138,17 +131,17 @@ def get_class_composite(U, name_map, num_concepts, layer_idx, device=torch.devic
     ctx_vecs = ctx_vecs if ctx_vecs.dim() == 3 else ctx_vecs.unsqueeze(0)
 
     batch = act_vecs.size(0)
-    d_c = Q.size(0) // n_concepts
+    d_c = U.size(0) // n_concepts
 
     # clculate projected vectors
-    xa = torch.matmul(act_vecs, Q)
-    xc = torch.matmul(ctx_vecs, Q)
+    xa = torch.matmul(act_vecs, U)
+    xc = torch.matmul(ctx_vecs, U)
 
     # element wise multiplication (models response to activations)
     x = torch.mul(xa, xc) #.view(-1, num_concepts, d_c)
     x = x.transpose(-2,-1).contiguous().view(batch, n_concepts, -1, d_c)
     
-    return x.sum(-1).sum(-1)'''
+    return x.sum(-1).sum(-1)
 
 
 

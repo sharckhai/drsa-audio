@@ -1,8 +1,4 @@
-import os
-import sys
-import numpy as np
 from zennit.rules import Epsilon, Gamma, Flat, WSquare
-
 
 CLASS_IDX_MAPPER = {"pop": 0, "metal": 1, "disco": 2, "blues": 3, "reggae": 4, "classical": 5, "rock": 6, "hiphop": 7, "country": 8, "jazz": 9}
 
@@ -38,5 +34,3 @@ LRP_NAME_MAP_TOY = [
 
 
 # TODO: layer idx to dimension mapper (d=num filters)
-
-

@@ -1,10 +1,8 @@
-
 import os
 import random
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 import numpy as np
 from datetime import datetime
@@ -29,12 +27,8 @@ def fit(model: nn.Module,
     
     print('starting fit')
     
-    # model to device
     model.to(device)
-    # track smoothed accuracy
-    #smoothed_train_acc = SmoothedMetricHistory(window_size=5)
-    #smoothed_valid_acc = SmoothedMetricHistory(window_size=5)
-    #smoothing_metrics = {'train': smoothed_train_acc, 'valid': smoothed_valid_acc}
+
     train_losses = []
     valid_losses = []
     train_acc = []
@@ -105,10 +99,6 @@ def fit(model: nn.Module,
             train_losses.append(epoch_loss) if phase=='train' else valid_losses.append(epoch_loss)
             train_acc.append(epoch_acc) if phase=='train' else valid_acc.append(epoch_acc)
 
-            # update smoothed accuarcy
-            #smoothing_metrics[phase].update(epoch_acc)
-            #smoothed_acc = smoothing_metrics[phase].average()
-
             if phase == 'train':
                 # update learning rate scheduler
                 if scheduler:
@@ -173,103 +163,7 @@ def save_train_stats(path_to_model, train_losses, train_acc, valid_losses, valid
 
 
 
-#################################################### Müll ####################################################
-
-## no need for this function
-def reset_weights(model):
-    '''
-    Try resetting model weights to avoid
-    weight leakage.
-    '''
-    for layer in model.children():
-        if hasattr(layer, 'reset_parameters'):
-            print(f'Reset trainable parameters of layer = {layer}')
-            layer.reset_parameters()
-
-
-
-class SmoothedMetricHistory:
-    def __init__(self, window_size):
-        self.window_size = window_size
-        self.values = []
-
-    def update(self, value):
-        self.values.append(value)
-        if len(self.values) > self.window_size:
-            self.values.pop(0)
-
-    def average(self):
-        return sum(self.values) / len(self.values) if self.values else 0
-
-
-
-
-"""def fit_baseline(model: nn.Module, 
-        loss_func, 
-        optimizer: torch.optim, 
-        dataloaders: dict, 
-        num_epochs: int=10, 
-        device = torch.device('cpu'), 
-        scheduler = None, 
-        from_epoch: int = 0, 
-        model_path=None,
-        ):
-    
-    # model to device
-    model.to(device)
-    
-    if from_epoch == 0:
-        time = datetime.now()
-        model_path = model_path if model_path else os.path.join('../models', str(time))
-        os.makedirs(model_path)
-
-    train_stats = {'train_loss': [], 'train_acc': [], 'validation_loss': [], 'validation_accuracy': []}
-
-    for epoch in range(1, num_epochs+1):
-        print(f'Epoch {epoch}/{num_epochs}')
-        print('-' * 30)
-
-        for phase in ['train', 'valid']:
-            if phase == 'train':
-                model.train()  # Set model to training mode
-            else:
-                model.eval() 
-
-            running_loss = 0.0
-            running_acc = 0.0
-
-            for xb, yb in dataloaders[phase]:
-                xb, yb = xb.to(device), yb.to(device)
-
-                with torch.set_grad_enabled(phase == 'train'):
-                    loss, acc = loss_batch(model, loss_func, xb, yb, opt=optimizer, phase=phase, device=device)
-
-                # stats
-                running_loss += loss
-                running_acc += acc
-
-            epoch_loss = running_loss / len(dataloaders[phase])
-            epoch_acc = running_acc / len(dataloaders[phase])
-
-            if phase == 'train':
-                #scheduler.step()
-                train_loss = epoch_loss
-                train_acc = epoch_acc
-
-            print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
-
-        print()
-        train_stats = log_dict(train_stats, train_loss, train_acc, epoch_loss, epoch_acc)
-
-        # deep copy the model
-        if epoch % 50==0:
-            torch.save(model.state_dict(), os.path.join(model_path, 'best_model_%s.pth' % (epoch+from_epoch)))
-            save_train_stats(model_path, train_stats, (epoch+from_epoch))
-
-    return train_stats, model_path"""
-
-
-
+# for training in cluster with CUDA
 def main(args):
     # grid search
     device = torch.device('cuda')

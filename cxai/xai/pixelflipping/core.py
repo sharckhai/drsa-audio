@@ -19,7 +19,6 @@ class Flipper:
         self.scale = 1
 
 
-
     def __call__(self, 
                  forward_func: callable,  ##### introduce relu operation to model output to focus on positive only
                  input_batch: torch.Tensor, 
@@ -28,32 +27,24 @@ class Flipper:
                  seed: int = 42,
                  ) -> np.ndarray:
         """
-        Executes the pixel flipping algorithm.
+        Executes the pixel flipping for a specific configuration.
         This class works on batched inputs and respective relvance maps. 
-        Input batch has to have the shape (batch, channel, heoght, width).
+        Input batch has to have the shape (batch, channel, height, width).
 
-        IMPORTANT: 
-        Each class has to be represented by the same number of samples. 
+        NOTE: Each class has to be represented by the same number of samples. 
         The samples have to be sorted in consecutive order (with increasing classes)!!!
 
-        Parameters:
-        ----------
-        forward_func: callable
-            Represents the model and ouputs prediction scores (Logits).
-        input: torch.tensor
-            Batched inputs. Shape has to be: (batch, channel, height, width).
-        R: torch.Tensor
-            Batched relevance matrices. Has to be in same order as input.
-
+        -----
+        Args:
+            forward_func (callable): Represents the model and ouputs prediction scores (Logits).
+            input (torch.tensor): Batched inputs. Shape has to be: (batch, channel, height, width).
+            R (torch.Tensor): Batched relevance matrices. Has to be in same order as input.
+            flipping_mode (str): Flip patches at random or according to relevances (R)
         Returns:
-        -------
-        aupc: float
-            Area under the pipxel flipping curve.
-
+            aupc (float): Area under the pipxel flipping curve.
         """
 
-        # input_batch [batch, c, height, width]
-        # R shape [batch, n_concepts, c, height, width]
+        # input_batch [batch, c, height, width], R shape [batch, n_concepts, c, height, width]
         # NOTE: In case of standard attribution set n_concepts = 1
 
         if flipping_mode != 'random':
@@ -68,9 +59,6 @@ class Flipper:
 
         # generate list of patch indices to flip in each step
         if self.flipping_mode == 'random':
-
-            # TODO  : no loop!!!!
-
             # generate an array of patch idcs to flip for each sample in batch
             sorted_patch_indices_by_relevance = torch.stack([torch.randperm(self.num_patches, device=self.device) for _ in range(self.batch_size)])
             self.sorted_patch_indices_by_relevance = sorted_patch_indices_by_relevance.reshape(self.batch_size, 1, -1)
@@ -109,11 +97,6 @@ class Flipper:
             pertubed_input_batch = self._flip(pertubed_input_batch, masks).to(self.device)
             pertubed_inputs.append(pertubed_input_batch.detach().cpu().numpy())
 
-            # stack predictions for each class
-            # shape [num_classes,]
-            #mean_logits = self._get_prediction_score(pertubed_input_batch)
-            #pertubed_predictions.append(mean_logits)
-
             # [batch]
             logits = self._get_prediction_score(pertubed_input_batch)
             pertubed_predictions.append(logits)
@@ -147,8 +130,10 @@ class Flipper:
         
         
         elif self.perturbation_mode == 'inpainting':
+            # NOTE: to use inpainting install open-cv and uncomment the code vlock below
+            pass
 
-            # cv2.inpaint expects the patches to inpaint in mask filled with ones else zero
+            """# cv2.inpaint expects the patches to inpaint in mask filled with ones else zero
             masks = torch.abs(masks_copy - 1)
             inpainted_images = []
             
@@ -161,7 +146,7 @@ class Flipper:
 
                 inpainted_image = cv2.inpaint(image, mask.astype(np.uint8), inpaintRadius=self.perturbation_size//2, flags=cv2.INPAINT_TELEA)
 
-                if self.data_normaliaztion == 'normalization':
+                if self.data_normaliaztion == 'normalized':
                     # normalize the inpainted image patch seperate from original image
                     normalized_patch = ((inpainted_image.reshape(mask.shape) - np.min(inpainted_image)) / (np.max(inpainted_image) - np.min(inpainted_image))) * mask
 
@@ -178,7 +163,7 @@ class Flipper:
 
                 inpainted_images.extend(torch.tensor(inpainted_image[None], dtype=torch.float32, device=self.device).requires_grad_(False))
 
-            return torch.stack(inpainted_images, dim=0).reshape(self.batch_size, self.num_channels, self.height, self.width).to(self.device)
+            return torch.stack(inpainted_images, dim=0).reshape(self.batch_size, self.num_channels, self.height, self.width).to(self.device)"""
 
             
         else:
@@ -211,20 +196,15 @@ class Flipper:
     def _get_flipping_mask(self, patches_to_flip, flipped_patches) -> torch.Tensor:
         """
         Function to build flipping mask. Depending on perturbation step, the mask includes several patches.
-
-        Parameters:
-        -----------
-        patches_to_flip: int
-            Precalculated number of patches that have to be flipped during this eprturbation step.
-
+        -----
+        Args:
+            patches_to_flip (int): Precalculated number of patches that have to be flipped during this eprturbation step.
         Returns:
-        -------
-        mask: torch.Tensor
-            Tensor of ones with the size of input. NOTE: Patches to be pertub are filled with zeros.
+            mask (torch.Tensor): Tensor of ones with the size of input. NOTE: Patches to be pertub are filled with zeros.
         
-        # NOTE - Concept Flipping
+        NOTE: Concept Flipping
         We could either reshape the array of patches to flip, make them unique (unification) and mask.
-        Problem then is, that batched patch-flips arent possible anymore, since it is possible that each 
+        Problem then is, that batched patch-flips aren't possible anymore, since it is possible that each 
         sample has a different number of patches that have to be flipped (several concepts can have 
         overlapping patches with highest relevance).
 
@@ -267,16 +247,11 @@ class Flipper:
     def _get_prediction_score(self, pertubed_inputs) -> np.ndarray:
         """
         Calculates the averaged prediction score over all samples in the batch.
-
-        Args:
         -----
-        pertubed_inputs: torch.tensor
-            Expects balanced batch with samples in consecutive order
-
+        Args:
+            pertubed_inputs (torch.tensor): Expects balanced batch with samples in consecutive order
         Returns:
-        -------
-        mean_pred_score: float
-            Averaged prediction score over all samples (relu(logits).mean()).
+            mean_pred_score (float): Averaged prediction score over all samples (relu(logits).mean()).
         """
 
         # obtain model outputs, shape [batch, n_classes]
@@ -297,11 +272,9 @@ class Flipper:
     def _calculate_aupc(self, pertubed_predictions, flips_per_perturbation_step) -> np.ndarray:
         """
         Calculates the AUPC-score with self.flips_per_perturbation_step and self.perturbed_input.
-
+        -----
         Returns:
-        -------
-        aupc_score: np.arrray
-            AUPC score for every instance, array has shape [num_classes, samples_per_class]
+            aupc_score (np.arrray): AUPC score for every instance, array has shape [num_classes, samples_per_class]
         """
 
         # pertubed_predictions: shape [perturbation_steps, batch]
@@ -315,11 +288,8 @@ class Flipper:
         aupc_per_instance = (weights*frac).sum(axis=0)"""
 
         frac = (pertubed_predictions[:-1] - pertubed_predictions[1:]) / 2
-
         weights = np.cumsum(flips_per_perturbation_step[1:]) / flips_per_perturbation_step[1:].sum()
         aupc_per_instance = (weights[None].T*frac).sum(axis=0)
-
-        print(weights)
 
         # aupcs per instance sorted by classes, shape [num_classes, samples_per_class]
         aupc_per_class = aupc_per_instance.reshape(self.n_classes, -1)

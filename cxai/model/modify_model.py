@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
-import copy
-from collections import OrderedDict
-
-
 
 class ProjectionModel(nn.Module):
+    """
+    Inserts extra layers in a NN.
+    """
+
     def __init__(self, model: nn.Sequential, layer_idx, Q, num_concepts, case='gtzan') -> None:
         super().__init__()
 
@@ -33,6 +33,7 @@ class ProjectionModel(nn.Module):
 
 
 class ProjectionModel2(nn.Module):
+
     def __init__(self, model: nn.Sequential, layer_idx, case='gtzan') -> None:
         super().__init__()
 
