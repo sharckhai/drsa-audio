@@ -1,5 +1,5 @@
 import os
-import sys
+
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -10,11 +10,9 @@ import torch
 from cxai.utils.constants import CLASS_IDX_MAPPER
 
 
-###################################### fucntions for accuracy model evaluation 
-
 def get_acc(model, testloader=None, device=torch.device('cpu'), is_toy=False):
-    '''
-    Calculates accuracy on test set
+    """Calculates accuracy on test set
+
     -----
     Args:
         is_toy (bool): Case toy model and toydataset
@@ -22,7 +20,7 @@ def get_acc(model, testloader=None, device=torch.device('cpu'), is_toy=False):
         acc     (float): mean accuracy across classes
         ypred   (list): predicted labels on test set
         ytrue   (list): true labels of test set
-    '''
+    """
 
     model.eval()
 
@@ -52,10 +50,9 @@ def get_acc(model, testloader=None, device=torch.device('cpu'), is_toy=False):
 
     return acc, np.asarray(ytrue), np.asarray(ypred)
 
-
 def get_cm(ytrue, ypred, valid_fold=1, plot=True):
-    '''
-    Calculates and plots confusion matrix.
+    """Calculates and plots confusion matrix.
+
     -----
     Args:
         ypred   (list): predicted labels on test set
@@ -63,7 +60,7 @@ def get_cm(ytrue, ypred, valid_fold=1, plot=True):
         plot    (bool): Controls if confusion matrix has to be plotted
     Returns:
         cm (np.ndarray): confusion matrix of shape [num_classes, num_classes]
-    '''
+    """
 
     cm = confusion_matrix(ytrue, ypred)
     # convert to percentage
@@ -77,15 +74,15 @@ def plot_cm(cm, valid_fold=None, genredict=CLASS_IDX_MAPPER):
     ax = sns.heatmap(cm, annot=True, xticklabels=genredict.keys(), yticklabels=genredict.keys(), cmap='YlGnBu', fmt='.1f')
 
     # Setting the title, x-axis label, and y-axis label
-    ax.set_title('Confusion Matrix across 10 folds [%]' if valid_fold==None else f'Confusion Matrix [%], Validation fold: {valid_fold}')  # Main title
+    ax.set_title('Confusion Matrix across 10 folds [%]' if valid_fold==None \
+                 else f'Confusion Matrix [%], Validation fold: {valid_fold}')  # Main title
     ax.set_xlabel('Predicted label')  # X-axis label
     ax.set_ylabel('True label')  # Y-axis label
     plt.show()
 
-
 def class_accs(cm, genredict=CLASS_IDX_MAPPER):
-    r"""
-    Calculates and prints prediction accuaries of each class.
+    """Calculates and prints prediction accuaries of each class.
+
     -----
     Args:
         cm (np.ndarray): confusion matrix of shape [num_classes, num_classes]
@@ -99,7 +96,6 @@ def class_accs(cm, genredict=CLASS_IDX_MAPPER):
         print(f'Acc of {list(genredict.keys())[i]:>10s}: {round(class_acc, 2):.2f}%')
         confusion_matrix_dict[list(genredict.keys())[i]] = round(class_acc, 2)
     return confusion_matrix_dict
-
 
 def get_train_stats(path):
     
@@ -117,11 +113,8 @@ def get_train_stats(path):
 
     return pd.concat(all_dfs, ignore_index=True)
 
-
-
-###################################### DRSA train stat loading
-
 def get_best_run(path):
+    """DRSA train stat loading"""
 
     best_loss = 0
     concept_relevances = None
@@ -137,7 +130,6 @@ def get_best_run(path):
             path_to_best_run = os.path.join(path, dir_level1)
 
     return best_run, best_loss, concept_relevances, path_to_best_run, train_losses
-
 
 def get_run_stats(path):
 

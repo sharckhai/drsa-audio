@@ -1,12 +1,13 @@
 import random
+from Typing import Tuple
+import warnings
+warnings.filterwarnings("ignore", message="MPS: no support for int64 repeats mask, casting it to int32")
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-import warnings
-warnings.filterwarnings("ignore", message="MPS: no support for int64 repeats mask, casting it to int32")
-
 import zennit
 from zennit.attribution import Gradient
 
@@ -26,10 +27,12 @@ def preprocess_data(model: nn.Sequential,
                     scaled_output: bool = False,
                     static = False,
                     ) -> tuple:
-    r"""
-    Does the data preprocessing to train the orthogonal subspaces as defined by DRSA. 
+    """Does the data preprocessing to train the orthogonal subspaces as defined by DRSA. 
     Activation and relevance vectors are extracted with hooks at the specified layer.
+
     -----
+    Args:
+        TODO
     Returns:
         tuple of torch.Tensors: activtion vectors and con text vectors
     """
@@ -70,17 +73,15 @@ def preprocess_data(model: nn.Sequential,
     return (activation_vectors, context_vectors)
 
 
-def grid_locs(batch_size, map_size, num_locations):
-    r"""
-    Supposes squared feature maps. Samples evelny spaces locations (grid) across the feature map.
-    """
+def grid_locs(batch_size: int, map_size, num_locations: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Supposes squared feature maps. Samples evelny spaces 
+    locations (grid) across the feature map."""
 
     assert num_locations%(num_locations**.5) == 0, 'num_locs has to be a perfect square'
 
     # get num_samples per axis
     filter_size = map_size[0]
     k = int(num_locations**.5)
-
     # get evenly spaced lcoations
     even_locs = get_evenly_spaced_locs(filter_size, k)
     
@@ -93,51 +94,50 @@ def grid_locs(batch_size, map_size, num_locations):
     return x_grid_locs_batch, y_grid_locs_batch
 
 
-def get_evenly_spaced_locs(filter_size, k) -> np.ndarray:
-    r"""
-    Samples evenly spaced nubers from 0-filter_size.
-    """
+def get_evenly_spaced_locs(filter_size: int, k: int) -> np.ndarray:
+    """Samples evenly spaced nubers from 0-filter_size."""
+
     # create array of sample points
     step_size = int(filter_size/k)
     grid_locs = np.arange(k)*step_size
     grid_locs = grid_locs + int(step_size/2)
-
     return grid_locs
 
 
 def get_vectors_from_locs(maps, x_locs, y_locs) -> torch.Tensor:
-    r"""
-    Extracts vectors from feature maps at given x and y location.
-    """
+    """Extracts vectors from feature maps at given x and y location."""
+
     # x_locs, y_locs shape: [batch_size, num_locs]
     batch_size, d, _, _ = maps.size()
     # [batch, d, num_locs]
     vectors = maps[np.arange(batch_size)[:,None], ..., x_locs, y_locs]
     # [batch * num_locs, d]
     vectors = vectors.transpose(-2, -1).reshape(-1, d)
-
     return vectors
 
 
 def store_hook(module, input, output):
-    r"""
-    Hook to extract feature maps and relevance maps within the NN.
-    """
+    """Hook to extract feature maps and relevance maps within the NN."""
+
     # keep the output tensor gradient, even if it is not a leaf-tensor
     module.output = output
     output.retain_grad()
 
 
-def get_intermediate(model, layer, input_batch, composite, class_idx, attr_batch_size=64, scaled_output=False) -> torch.Tensor:
-    """
-    Registers hook. Extracts activation maps and relevance maps at defined layer.
-    """
+def get_intermediate(model: nn.Sequential, 
+                     layer, 
+                     input_batch: torch.Tensor, 
+                     composite, 
+                     class_idx: int, 
+                     attr_batch_size: int = 64, 
+                     scaled_output: bool = False
+                     ) -> torch.Tensor:
+    """Registers hook. Extracts activation maps and relevance maps at defined layer."""
 
     input_batch_size = input_batch.size(0)
 
     # process data in smaller batches to avoid overloading the gpu by storing intermediate outputs
     num_batches = (input_batch_size + attr_batch_size - 1) // attr_batch_size 
-
     activation_maps, relevance_maps = [], []
 
     # register lrp hooks
@@ -145,9 +145,7 @@ def get_intermediate(model, layer, input_batch, composite, class_idx, attr_batch
 
         # register own store hook to save intermediate representations during forward pass (retain grad saves grad in backward pass)
         handles = [layer.register_forward_hook(store_hook)]
-
         with tqdm(total=input_batch_size, desc='Extracting activation and relevance maps') as pbar:
-
             for i in range(num_batches):
 
                 batch = input_batch[i*attr_batch_size:min((i+1)*attr_batch_size, input_batch.size(0))]
@@ -155,10 +153,8 @@ def get_intermediate(model, layer, input_batch, composite, class_idx, attr_batch
 
                 # compute the relevance
                 _, _ = attributor(batch, lrp_output_modifier(class_idx, scaled_output=scaled_output))
-
                 activation_maps.append(layer.output.detach().to(device=batch.device))
                 relevance_maps.append(layer.output.grad.detach().to(device=batch.device))
-
                 layer.output = None
 
                 pbar.update(batch.shape[0])
@@ -174,7 +170,10 @@ def get_intermediate(model, layer, input_batch, composite, class_idx, attr_batch
     return activation_maps, relevance_maps
 
 
-def compute_context_vectors(activation_vectors, relevance_vectors, epsilon) -> torch.Tensor:
+def compute_context_vectors(activation_vectors: torch.Tensor, 
+                            relevance_vectors: torch.Tensor, 
+                            epsilon: float
+                            ) -> torch.Tensor:
     # add epsilon to avoid division by zero
     return relevance_vectors / (activation_vectors + epsilon)
 
@@ -193,9 +192,8 @@ def sample_spatial_location(batch_size, map_size, num_locations) -> np.ndarray:
     
 
 def normalize_vectors(vectors) -> torch.Tensor:
-    r"""
-    Normalizes activation and context vectors to enable more stable training of subspaces. see DRSA paper.
-    """
+    """Normalizes activation and context vectors to enable more 
+    stable training of subspaces. see DRSA paper."""
     d = vectors.size()[-1]
     E = torch.sqrt(torch.mean(torch.square(vectors)))
     vectors_normalized = vectors / E / d**0.25
@@ -203,9 +201,7 @@ def normalize_vectors(vectors) -> torch.Tensor:
 
 
 def get_vectors_from_maps(maps, idcs_batch) -> torch.Tensor:
-    r"""
-    Extraxts vectors at specified lcoations from featzure maps.
-    """
+    """Extraxts vectors at specified lcoations from featzure maps."""
     
     # [batch, d, height, width]
     batch_size, d, _, _ = maps.size()
@@ -215,16 +211,14 @@ def get_vectors_from_maps(maps, idcs_batch) -> torch.Tensor:
     vectors = maps[np.arange(batch_size)[:,None], :, idcs_batch]
     # [batch * num_locs, d]
     vectors = vectors.transpose(-2, -1).reshape(-1, d)
-
     return vectors
 
 
 # TODO: move these functions to another file
 
 def get_songs_toy(datapath, sample_class, split=None, N=None):
-    r"""
-    Loading all samples of specific genre. Num chunks = 10. Then we shuffle the data and truncate the batch if defined.
-    """
+    """Loading all samples of specific genre. Num chunks = 10. 
+    Then we shuffle the data and truncate the batch if defined."""
 
     paths_to_songs = get_toy_samplelist(datapath, sample_class, split)
     if N is not None:
@@ -232,7 +226,6 @@ def get_songs_toy(datapath, sample_class, split=None, N=None):
         paths_to_songs = paths_to_songs[:N]
 
     loader = Loader(case='toy')
-    
     data_batch = []
     songs = []
 
@@ -244,38 +237,30 @@ def get_songs_toy(datapath, sample_class, split=None, N=None):
         songs.extend(path_to_song)
         
     data_batch_tensor = torch.stack(data_batch, dim=0)
-
     return data_batch_tensor, songs
 
 
 # TODO: combine with get_sings_new_last from xai.prep
 
 def get_songs_drsa(datapath, sample_class, excluded_folds=None, N=None, num_folds=5):
-    r"""
-    Loading all samples of specific genre. Num chunks = 10. Then we shuffle the data and truncate the batch if defined.
-    """
+    """Loading all samples of specific genre. Num chunks = 10. Then 
+    we shuffle the data and truncate the batch if defined."""
 
     paths_to_songs = get_songlist(datapath, sample_class, excluded_folds, num_folds=num_folds)
 
     loader = Loader()
     num_chunks = 10
-    
     data_batch = []
     songs = []
 
     # load samples as mel spectrograms
     for path_to_song in tqdm(paths_to_songs, total=len(paths_to_songs), desc="Loading samples from disk"):
-
-        if path_to_song.endswith('hiphop.00036.wav') or path_to_song.endswith('hiphop.00038.wav'): continue         ################### TODO: delete this ####################
-
+        # if path_to_song.endswith('hiphop.00036.wav') or path_to_song.endswith('hiphop.00038.wav'): continue 
         mels = loader.load(path_to_song, num_chunks=num_chunks) 
         data_batch.extend(mels.detach())
         songs.extend([path_to_song for _ in range(num_chunks)])
         
     data_batch_tensor = torch.stack(data_batch, dim=0)
-
-    # if N is specified we shuffle and truncate the batch of data
     if N:
         data_batch_tensor, songs = shuffle_and_truncate_databatch(data_batch_tensor, songs, N)
-
     return data_batch_tensor, songs

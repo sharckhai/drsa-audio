@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 
 
+# TODO: change inti to take path to config file as input
+
 class VGGType(torch.nn.Module):
     
     def __init__(self, 
@@ -65,7 +67,8 @@ class VGGType(torch.nn.Module):
         x = self.features(x)
 
         # NOTE: hardcode flat features, the function num_flat_features's only purpose is for grid search of best model architecture
-        x = x.view(-1, num_flat_features(x)) #x.view(-1, 2048)
+        #x = x.view(-1, num_flat_features(x)) 
+        x = x.view(-1, 2048)
 
         # feed forward
         logits = self.classifier(x)
@@ -77,6 +80,7 @@ class VGGType(torch.nn.Module):
 def get_conv_block_layers(n_in, n_out, block_depth=2, kernel: tuple = (3,3), stride: int = 1, padding: int = 1, padding_mode='zeros', conv_bn=True):
     r"""
     Creates list of layers for a convolutional block (= Conv2d -> BatchNorm2d -> ReLU)
+    
     -----
     Args:
         n_in (int): input dimension

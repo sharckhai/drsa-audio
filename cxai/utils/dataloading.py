@@ -1,77 +1,111 @@
 import os
+from Typing import Tuple
+
+import numpy as np
 import torch
 import torchaudio
 import librosa
 
-from cxai.utils.sound_processing import get_slice, peak_normalizer
-from cxai.utils.constants import CLASS_IDX_MAPPER
+from cxai.utils.sound import get_slice, peak_normalizer
+from cxai.utils.constants import CLASS_IDX_MAPPER, AUDIO_PARAMS
 
 
 class Loader():
     """
-    This class serves as dataloader for specific cases like evaluation procedures or data preparation methodologies.
+    This class serves as dataloader for specific cases like evaluation procedures or data preparation processes.
     """
 
-    def __init__(self, case='gtzan'):
-
-        self.sample_rate = 16000
-        self.case = case
-
-        if self.case == 'gtzan':
-            n_fft = 800
-            hop_length = 360
-            self.n_mels = 128
-            self.slice_length = 3
-            self.width = 128
+    def __init__(self,
+                 case: None,
+                 sample_rate: int = 16000,
+                 n_fft: int = 800,
+                 hop_length: int = 360,
+                 n_mels: int = 128,
+                 slice_length: int = 3,
+                 width: int = 128
+                 ) -> None:
+        """
+        Args:
+            case (str): Defines which audio parameters should be initialized for the transformation from
+                        wav to log-mel-spectrogram. options [gtzan, toy].
+        """
+        if case is not None and case in list(AUDIO_PARAMS.keys()):
+            self.sample_rate = AUDIO_PARAMS[case]['sample_rate']
+            n_fft = AUDIO_PARAMS[case]['n_fft']
+            hop_length = AUDIO_PARAMS[case]['hop_length']
+            self.n_mels = AUDIO_PARAMS[case]['n_mels']
+            self.width = AUDIO_PARAMS[case]['mel_width']
+            self.slice_length = AUDIO_PARAMS[case].get('slice_length', 0)
         else:
-            n_fft = 480
-            hop_length = 240
-            self.n_mels = 64
-            self.width = 64
+            self.sample_rate = sample_rate
+            self.n_mels = n_mels
+            self.slice_length = slice_length
+            self.width = width
 
         self.wav2spec = torchaudio.transforms.Spectrogram(n_fft=n_fft, hop_length=hop_length, power=None)
         self.spec2mel = torchaudio.transforms.MelScale(n_mels=self.n_mels, n_stft=n_fft // 2 + 1, sample_rate=self.sample_rate)
         
     
-    def load(self, path_to_audio,  num_chunks=1, startpoint=0, return_wav=False):
-        """
-        Loads sample, slices and normalizes it by peak and converts it into a mel-spectrogram.
+    def load(self, 
+             path_to_audio: str,  
+             num_chunks: int = 1, 
+             startpoint: int = 0, 
+             return_wav: bool = False
+             ) -> torch.Tensor | Tuple[torch.Tensor, torch.Tensor]:
+        
+        """Loads audio sample, slices and normalizes it by peak and converts it 
+        into a log-mel-spectrogram.
+
+        -----
+        Args:
+            path_to_audio (str): path to the audio to load
+            num_chunks (int): number of slices that should be extracted from the audio
+            startpoint (int): startpoint in seconds where to extract the first chunk
+            return_wav (bool): control flag if the waveform audio should also be returned
+        Returns:
+            mel_normed (torch.Tensor): log-mel-spectrogram
         """
         wav, _ = torchaudio.load(path_to_audio)
         wav = wav.requires_grad_(False)
 
-        if self.case == 'gtzan':
+        if self.slice_length != 0:
             wav = get_slice(wav, slice_length=self.slice_length, num_chunks=num_chunks,
                             start_point=startpoint, sample_rate=self.sample_rate)
         
         wav = peak_normalizer(wav)
         mel_normed = self.transform_wav(wav)
-
         if return_wav:
             return wav, mel_normed
-
         return mel_normed
     
 
-    def load_batch_toy(self, songlist):
-        samples = []
-        for name in songlist:
-            samples.append(self.load(name))
-        return torch.stack(samples, dim=0).view(-1, 1, self.n_mels, self.width)
-    
-
-    def load_batch(self, songlist, startpoints):
+    def load_batch(self, songlist: list, startpoints: list = None) -> torch.Tensor:
+        """Loads snippets of a given batch.
+        
+        NOTE: for now this function only loads one snippet per smaple. 
+        Will be changed to load more snippets.
+        """
+        if startpoints == None: startpoints = np.zeros(len(songlist))
         samples = []
         for name, startpoint in zip(songlist, startpoints):
             samples.append(self.load(name, startpoint=startpoint))
         return torch.stack(samples, dim=0).view(-1, 1, self.n_mels, self.width)
         
-    
 
-    def transform_wav(self, wav, return_all=False, clamp=True):
+    def transform_wav(self, wav: torch.Tensor, return_all: bool = False, clamp: bool = True) -> torch.Tensor:
+        """Transforms wav-form audio into logmel-spectrogram.
+        
+        ----
+        Args:
+            wav (torch.tensor): Audio snippet
+            return_all (bool): Flag to control the returns. If true all audio representations are returned. 
+                               This is essential for Mel2Audio in audiogen.py.
+            clamp (bool): flag To define if log-amplitude values of spectrogram should be clamped to a certain 
+                               (negative)value
+        Returns:
+            (torch.tensor): log-mel-spectrogram
         """
-        Transforms wav-form audio into logmel-spectrogram.
-        """
+
         # complex spectrogram
         spec = self.wav2spec(wav)
         # mel spectrogram
@@ -82,27 +116,33 @@ class Loader():
         if clamp: logmel = torch.clamp(logmel, -4)
 
         if return_all:
-            # for Mel2Audio
+            # NOTE: when return_all==True, np.ndarrays are retuned
             mag, phase = librosa.magphase(spec.numpy())
             return wav.numpy(), mag[..., :self.width], phase[..., :self.width], mel.numpy()[..., :self.width]
         
         # standard return
-        if self.case == 'gtzan':
-            return logmel[..., :self.width].reshape(-1,1,self.n_mels,self.width)
-        else:
-            return logmel[..., 1:-2].reshape(-1,1,self.n_mels,self.width)
+        logmel = logmel[..., 1:self.width+1]
+        assert logmel.shape[-1]==self.width, f"width of logmel-spectrogram ({logmel.shape[-1]}) \
+            has to equal self.width ({self.width})."
+        return logmel.reshape(-1,1,self.n_mels,self.width)
 
 
-    def load_all_representations(self, path_to_audio, startpoint=None):
-        r"""
-        Function transforms a wav-form signal into a mel-spectrogram  and returns all intermedieate representations.
-        These include: original wav, magnitude spectrogram, phase spectrogram, mel spectrogram
-        """
+    def load_all_representations(self, path_to_audio: str, startpoint: int = None):
+        """Calls self.load with return_all=True."""
         return self.load(path_to_audio, startpoint, return_all=True)
     
 
+def shuffle_and_truncate_databatch(data_batch, paths_to_songs, N, seed=42):
+    """Shuffle a readily loaded databatch."""
 
-###################################### functions to load paths to songs ######################################
+    # instantiate local generator
+    local_gen = torch.Generator()
+    local_gen = local_gen.manual_seed(seed)
+    perm_mask = torch.randperm(data_batch.size(0), generator=local_gen)
+    data_batch = data_batch[perm_mask][:N]
+    paths_to_songs = [paths_to_songs[i] for i in perm_mask[:N]]
+
+    return data_batch, paths_to_songs
 
 
 def get_songlist(path, 
@@ -111,8 +151,8 @@ def get_songlist(path,
                  num_folds: int = 5, 
                  return_list: bool = True, 
                  genres: dict = CLASS_IDX_MAPPER):
-    """
-    Function to get list of audios of specific genre in defined folds.
+    """Function to get list of audios of specific genre in defined folds.
+    
     -----
     Args:
         genre           (str): genre to load instances from
@@ -124,8 +164,7 @@ def get_songlist(path,
         songlist
     """
 
-    assert not path.startswith('.'), 'path has to be an absolute path'
-
+    #assert path.startswith('.'), 'path has to be an absolute path'
     genres = [genre] if genre else genres
     songpaths = [] if return_list else {}
 
@@ -139,9 +178,7 @@ def get_songlist(path,
 
 
 def get_songs_of_genre(path, genre, excluded_folds: list = None, num_folds: int = 10) -> list:
-    """
-    Returns list of absolute paths to all samples of the specified genre
-    """
+    """Returns list of absolute paths to all samples of the specified genre"""
     
     # case train and cross-validation: concatenate all folds together exept of the validation fold
     paths_to_songs = []
@@ -164,9 +201,7 @@ def get_songs_of_genre(path, genre, excluded_folds: list = None, num_folds: int 
 
 
 def get_toy_samplelist(path, toyclass=None, splits: str=None) -> list:
-    """
-    Loads the paths to every sample of toy data
-    """
+    """Loads the paths to every sample of toy data"""
 
     splits = ['train', 'valid', 'test'] if splits is None else [splits]
 
@@ -183,7 +218,6 @@ def get_toy_samplelist(path, toyclass=None, splits: str=None) -> list:
                     samplelist.append(os.path.join(path, line.strip()))
             else:
                 samplelist.append(os.path.join(path, line.strip()))
-    
     return samplelist
 
 
@@ -198,19 +232,6 @@ def get_songlist_random(path, num_folds=5) -> list:
         songlist.extend([line.strip() for line in lines])
 
     return songlist
-
-
-def shuffle_and_truncate_databatch(data_batch, paths_to_songs, N, seed=42):
-
-    # instantiate local generator
-    local_gen = torch.Generator()
-    local_gen = local_gen.manual_seed(seed)
-    perm_mask = torch.randperm(data_batch.size(0), generator=local_gen)
-
-    data_batch = data_batch[perm_mask][:N]
-    paths_to_songs = [paths_to_songs[i] for i in perm_mask[:N]]
-
-    return data_batch, paths_to_songs
 
 
 """def get_song_list(path_to_txt, split):

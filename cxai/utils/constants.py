@@ -4,6 +4,24 @@ CLASS_IDX_MAPPER = {"pop": 0, "metal": 1, "disco": 2, "blues": 3, "reggae": 4, "
 
 CLASS_IDX_MAPPER_TOY = {'class1': 0, 'class2': 1}
 
+# parameters to perform DSTFT
+AUDIO_PARAMS = {
+    'gtzan': {'sample_rate': 16000, 
+        'n_fft': 800, 
+        'hop_length': 360, 
+        'n_mels': 128, 
+        'slice_length': 3, 
+        'mel_width': 128
+    }, 
+    'toy': {'sample_rate': 16000, 
+        'n_fft': 480, 
+        'hop_length': 240, 
+        'n_mels': 64, 
+        'mel_width': 64
+    }
+}
+
+
 # name maps for standard atribution with zennit
 
 LRP_NAME_MAP_GTZAN = [

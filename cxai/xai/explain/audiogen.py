@@ -6,7 +6,7 @@ import torchvision
 import torch.nn.functional as F
 
 from cxai.utils.dataloading import Loader
-from cxai.utils.sound_processing import get_slice, peak_normalizer, adjust_vol
+from cxai.utils.sound import get_slice, peak_normalizer, adjust_vol
 
 
 class Mel2Audio:

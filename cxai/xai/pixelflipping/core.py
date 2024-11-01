@@ -194,9 +194,10 @@ class Flipper:
     def _get_flipping_mask(self, patches_to_flip, flipped_patches) -> torch.Tensor:
         """
         Function to build flipping mask. Depending on perturbation step, the mask includes several patches.
+        
         -----
         Args:
-            patches_to_flip (int): Precalculated number of patches that have to be flipped during this eprturbation step.
+            patches_to_flip (int): Precalculated number of patches that have to be flipped during this perturbation step.
         Returns:
             mask (torch.Tensor): Tensor of ones with the size of input. NOTE: Patches to be pertub are filled with zeros.
         
@@ -276,15 +277,6 @@ class Flipper:
         """
 
         # pertubed_predictions: shape [perturbation_steps, batch]
-
-        """# patches to mask are zeroed, we revert to calculate percentage of patches flipped
-        masks = np.abs(masks - 1).squeeze()
-
-        # get difference between pred logits
-        frac = (pertubed_predictions[:-1] - pertubed_predictions[1:]) / 2
-        weights = masks.sum((-2,-1)) / masks[-1].sum((-2,-1))
-        aupc_per_instance = (weights*frac).sum(axis=0)"""
-
         frac = (pertubed_predictions[:-1] - pertubed_predictions[1:]) / 2
         weights = np.cumsum(flips_per_perturbation_step[1:]) / flips_per_perturbation_step[1:].sum()
         aupc_per_instance = (weights[None].T*frac).sum(axis=0)

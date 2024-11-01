@@ -62,9 +62,8 @@ class ProjectionModel2(nn.Module):
 
 
 class SubspaceFilter(nn.Module):
-
     """
-    We could filter relevances with the defined hook on the InvProjection Layer, but for convenience we introduce a Filter layer.
+    We could filter relevances with the defined hook on the InvProjection Layer, but for convenience we introduce a filter layer.
     """
 
     def __init__(self) -> None:

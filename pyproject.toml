@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cxai"
+version = "0.1.0"
+description = "Concept-based XAI on audio data"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }  # Add license text or file if applicable
+authors = [{ name = "Samuel Harck", email = "samuel.harck@icloud.com" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "numpy",
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "librosa",
+    "scipy",
+    "matplotlib",
+    "zennit"
+]
+
+[tool.setuptools.packages.find]
+include = ["cxai"]

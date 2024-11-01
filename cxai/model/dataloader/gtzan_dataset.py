@@ -12,7 +12,7 @@ from torchaudio_augmentations import (
     PitchShift,
 )
 
-from cxai.utils.sound_processing import round_down, peak_normalizer, normalize
+from cxai.utils.sound import round_down, peak_normalizer, normalize
 from cxai.utils.constants import CLASS_IDX_MAPPER
 
 
