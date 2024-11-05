@@ -22,13 +22,11 @@ def preprocess_data(model: nn.Sequential,
                     class_idx: int,
                     num_locations: int = None,
                     epsilon: float = 1e-7,
-                    case = 'gtzan',
-                    device: torch.device = torch.device('cpu'),
                     scaled_output: bool = False,
-                    static = False,
+                    device: str | torch.device = torch.device('cpu'),
                     ) -> tuple:
-    """Does the data preprocessing to train the orthogonal subspaces as defined by DRSA. 
-    Activation and relevance vectors are extracted with hooks at the specified layer.
+    """Performs the data extraction from the NN and its preprocessing to train the orthogonal subspaces 
+    as defined by DRSA. Activation and relevance vectors are extracted with hooks at the specified layer.
 
     -----
     Args:
@@ -36,31 +34,31 @@ def preprocess_data(model: nn.Sequential,
     Returns:
         tuple of torch.Tensors: activtion vectors and con text vectors
     """
-
+    if isinstance(device, str): device = torch.device(device)
     # [batch, channel, height, width]
     input_batch = torch.tensor(input_batch).to(device) if isinstance(input_batch, np.ndarray) else input_batch.to(device)
     batch_size = input_batch.size(0)
     # extract layer to register hook
     layer = model.features[layer_idx]
-
     # [batch, d, filter_size, filter_size]
-    activation_maps, relevance_maps = get_intermediate(model, layer, input_batch, composite, class_idx, scaled_output=scaled_output)
+    activation_maps, relevance_maps = get_intermediate(model, layer, input_batch, composite, \
+                                                       class_idx, scaled_output=scaled_output)
 
     print('Extrcating activation and context vectors at several spatial locations...')
 
     if num_locations:
-        if static==0:
-            # statci grid sampling
+        # sample all random locations
+        idcs_batch = sample_spatial_location(batch_size, activation_maps.size()[-2:], num_locations)
+        activation_vectors = get_vectors_from_maps(activation_maps, idcs_batch)
+        relevance_vectors = get_vectors_from_maps(relevance_maps, idcs_batch)
+        """# static grid sampling
             x_locs, y_locs = grid_locs(batch_size, activation_maps.size()[-2:], num_locations)
             activation_vectors = get_vectors_from_locs(activation_maps, x_locs, y_locs)
             relevance_vectors = get_vectors_from_locs(relevance_maps, x_locs, y_locs)
-        else:
-            # sample all random locations
-            idcs_batch = sample_spatial_location(batch_size, activation_maps.size()[-2:], num_locations)
-            activation_vectors = get_vectors_from_maps(activation_maps, idcs_batch)
-            relevance_vectors = get_vectors_from_maps(relevance_maps, idcs_batch)
+        """
     else:
-        # case to get prototypes, we dont sample random locations but instead use all data (all locations). This equals just reshaping the maps into vectors.
+        # case to get prototypes, we dont sample random locations but instead use all data (all locations). 
+        # This equals just reshaping the maps into vectors.
         # [batch, filter_size*filter_size, d]
         activation_vectors = activation_maps.reshape(activation_maps.size(0), activation_maps.size(1), -1).transpose(-2,-1)
         relevance_vectors = relevance_maps.reshape(activation_maps.size(0), activation_maps.size(1), -1).transpose(-2,-1)
@@ -73,7 +71,7 @@ def preprocess_data(model: nn.Sequential,
     return (activation_vectors, context_vectors)
 
 
-def grid_locs(batch_size: int, map_size, num_locations: int) -> Tuple[np.ndarray, np.ndarray]:
+def grid_locs(batch_size: int, map_size: Tuple[int,int], num_locations: int) -> Tuple[np.ndarray, np.ndarray]:
     """Supposes squared feature maps. Samples evelny spaces 
     locations (grid) across the feature map."""
 
@@ -90,7 +88,6 @@ def grid_locs(batch_size: int, map_size, num_locations: int) -> Tuple[np.ndarray
     # repeat arrays batch_size times
     x_grid_locs_batch = np.tile(grid_locs_x.flatten(), (batch_size, 1))
     y_grid_locs_batch = np.tile(grid_locs_y.flatten(), (batch_size, 1))
-
     return x_grid_locs_batch, y_grid_locs_batch
 
 
@@ -132,7 +129,7 @@ def get_intermediate(model: nn.Sequential,
                      attr_batch_size: int = 64, 
                      scaled_output: bool = False
                      ) -> torch.Tensor:
-    """Registers hook. Extracts activation maps and relevance maps at defined layer."""
+    """Registers store-hook. Extracts activation maps and relevance maps at defined layer."""
 
     input_batch_size = input_batch.size(0)
 
@@ -143,23 +140,24 @@ def get_intermediate(model: nn.Sequential,
     # register lrp hooks
     with Gradient(model, composite) as attributor:
 
-        # register own store hook to save intermediate representations during forward pass (retain grad saves grad in backward pass)
+        # register own store hook to save intermediate representations during forward pass 
+        # (retain grad saves grad in backward pass)
         handles = [layer.register_forward_hook(store_hook)]
         with tqdm(total=input_batch_size, desc='Extracting activation and relevance maps') as pbar:
             for i in range(num_batches):
-
+                # seperate input batch in smaller batches to avoid gpu overhead
                 batch = input_batch[i*attr_batch_size:min((i+1)*attr_batch_size, input_batch.size(0))]
                 batch = batch.requires_grad_(True)
-
-                # compute the relevance
+                # compute the relevances
                 _, _ = attributor(batch, lrp_output_modifier(class_idx, scaled_output=scaled_output))
                 activation_maps.append(layer.output.detach().to(device=batch.device))
                 relevance_maps.append(layer.output.grad.detach().to(device=batch.device))
+                # reset the store hook variable to None
                 layer.output = None
-
+                # upate tqdm track
                 pbar.update(batch.shape[0])
 
-    # remove the store_hook
+    # remove the store-hook
     for handle in handles:
         handle.remove()
 
@@ -174,26 +172,25 @@ def compute_context_vectors(activation_vectors: torch.Tensor,
                             relevance_vectors: torch.Tensor, 
                             epsilon: float
                             ) -> torch.Tensor:
+    """Compute context vector (model response to activations from the view of releavnces)."""
     # add epsilon to avoid division by zero
     return relevance_vectors / (activation_vectors + epsilon)
 
 
 def sample_spatial_location(batch_size, map_size, num_locations) -> np.ndarray:
-    r"""
-    Samples random locations for each instance in the batch.
-    """
-    idcs_batch = np.zeros((batch_size, num_locations), dtype=int)
+    """Samples random locations for each instance in the batch."""
 
+    idcs_batch = np.zeros((batch_size, num_locations), dtype=int)
     # idcs for flattened feature maps
     for i in range(batch_size):
         idcs_batch[i, :] = np.random.choice(map_size[0]*map_size[1], num_locations, replace=False)
-
     return idcs_batch
     
 
-def normalize_vectors(vectors) -> torch.Tensor:
+def normalize_vectors(vectors: torch.Tensor) -> torch.Tensor:
     """Normalizes activation and context vectors to enable more 
     stable training of subspaces. see DRSA paper."""
+
     d = vectors.size()[-1]
     E = torch.sqrt(torch.mean(torch.square(vectors)))
     vectors_normalized = vectors / E / d**0.25
@@ -201,7 +198,7 @@ def normalize_vectors(vectors) -> torch.Tensor:
 
 
 def get_vectors_from_maps(maps, idcs_batch) -> torch.Tensor:
-    """Extraxts vectors at specified lcoations from featzure maps."""
+    """Extraxts vectors at specified lcoations from feature maps."""
     
     # [batch, d, height, width]
     batch_size, d, _, _ = maps.size()
@@ -240,7 +237,7 @@ def get_songs_toy(datapath, sample_class, split=None, N=None):
     return data_batch_tensor, songs
 
 
-# TODO: combine with get_sings_new_last from xai.prep
+# TODO: combine with get_songs_new_last from xai.prep
 
 def get_songs_drsa(datapath, sample_class, excluded_folds=None, N=None, num_folds=5):
     """Loading all samples of specific genre. Num chunks = 10. Then 

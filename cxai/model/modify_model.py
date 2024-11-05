@@ -75,12 +75,14 @@ class SubspaceFilter(nn.Module):
 
 
 class Projection(nn.Module):
-
     """
-    Outputs h
+    Defines the projection from activations a onto subspaces h_k.
     """
-
-    def __init__(self, U, num_concepts) -> None:
+    def __init__(self, 
+                 U: torch.tensor, 
+                 num_concepts: int,
+                 ) -> None:
+        
         super(Projection, self).__init__()
 
         # Q shape [d, d]
