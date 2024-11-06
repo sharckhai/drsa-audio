@@ -1,25 +1,25 @@
 # DRSA-AUDIO
 
-Disentangled explanations for neural network predictions on audio data.
+Disentangled explanations for neural network predictions on audio data. [GitHub Webpage](https://sharkhai.github.io/drsa-audio-results/)
 
 ## Description
 
 This repo provides code to extract concept-based explanations with Disentangled Relevant Subspace Analysis (DRSA) [[1]](#1) on Convolutional Neural Networks (CNNs). Experiments were conducted within 
-the scope of my master's thesis at the Machine Leanring Group TU Berlin on CNNs trained on log-mel-spectrograms, i.e., 2D audio representations.
-Extracting explanations on a concept level provides deeper insights into the models descicion behaviour and the data domain. Further information about the 
-research methodology and process, as well as the results of this work are provided on this website 
-[GitHub Webpage](https://sharkhai/github.io/drsa-audio-results/). On this page you will also find a lnk to the report of the thesis.
+the scope of my master's thesis at the Machine Leanring Group TU Berlin on CNNs trained on log-mel-spectrograms (i.e., 2D audio representations).
+Extracting explanations on a concept-level provides deeper insights into the models descicion behaviour and the data domain. Further information about the 
+research methodology and process, as well as the results of this work are provided on the webpage which is linked above. On that page you will also find a link to the thesis report.
 
 This repo contains the following components:
 
 - Code to construct and train a CNN to perform audio classification, e.g, music genre classification, with a ready-to-use well-considered preprocessing pipeline.
-- Framework for relevance attribution with Layerwise-Relevance Propagation (LRP) [[2]](#2) using the [Zennit](https://github.com/chr5tphr/zennit) library [[3]](#3).
+- Framework for relevance attribution with Layerwise-Relevance Propagation (LRP) [[2]](#2) using the [Zennit](https://github.com/chr5tphr/zennit) [[3]](#3) library.
 - An implementation of DRSA to decompose the standard explanation (local explanation) into semantically rich sub-explanations 
 representing different class specific objects that guide a the models descision.
 
 For a more extensive overview of the experiments undertaken with this code please refer to the webpage linked above.
 
 ## Installation
+We use ```python>=3.10```. Navigate to the root of the package and execute the following commands.
 - Install required packages with
 
 ```bash
@@ -29,7 +29,7 @@ pip install -r requirements.txt
 - Install setup.py in editable mode
 
 ```bash
-pip install -e setup.py
+pip install -e .
 ```
 
 ## Further work
