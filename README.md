@@ -1,6 +1,6 @@
 # DRSA-AUDIO
 
-Disentangled explanations for neural network predictions on audio data. [GitHub Webpage](https://sharkhai.github.io/drsa-audio-results/)
+Disentangled explanations for neural network predictions on audio data. [GitHub Webpage](https://sharckhai.github.io/drsa-audio-results/)
 
 ## Description
 
