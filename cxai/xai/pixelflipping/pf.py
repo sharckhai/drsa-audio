@@ -1,13 +1,14 @@
+from typing import Tuple, Dict, List, Any
+
 import numpy as np
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
-
 import zennit
 from zennit.canonizers import SequentialMergeBatchNorm
 from zennit.types import Linear, Convolution, Activation
-from zennit.rules import Epsilon, ZPlus, Norm, Pass, WSquare, Gamma, Flat, AlphaBeta
-from zennit.composites import SpecialFirstLayerMapComposite, NameMapComposite, NameLayerMapComposite
+from zennit.rules import Epsilon, ZPlus, Norm, Pass, WSquare, Gamma, Flat, AlphaBeta, BasicHook
+from zennit.composites import SpecialFirstLayerMapComposite, NameMapComposite, NameLayerMapComposite, Composite
 
 from cxai.xai.explain.attribute import compute_relevances
 from cxai.xai.pixelflipping.core import Flipper
@@ -25,29 +26,39 @@ rule_mapper = {
     'norm': Norm,
 }
 
-
 class PixelFlipping:
+    """Performs pixel flipping experiments.
 
-    def __init__(self,
-                 model: nn.Sequential,
-                 input_batch: torch.Tensor,
-                 perturbation_size: int = 8,
-                 perturbation_mode: str = 'constant',
-                 num_classes: int = 10,
-                 data_normaliaztion: str = 'normalized',
-                 device: torch.device = torch.device('cpu'),
-                 ) -> None:
-        r"""
-        Performs pixel flipping evaluationacross several configurations
-        NOTE: Classes have to represented by the same number of samples and have to be ordered in consecutive, increasing order by class index!
-        -----
+    This class coordinates several pixel flipping experiments, given a NN model, an input batch, and 
+    a configuration grid which spacifies differetn LRP configurations to attribute relevances down to the inputs.
+
+    Attributes:
+        TODO
+    """
+
+    def __init__(
+        self,
+        model: nn.Sequential,
+        input_batch: torch.Tensor,
+        perturbation_size: int = 8,
+        perturbation_mode: str = 'constant',
+        num_classes: int = 10,
+        data_normaliaztion: str = 'normalized',
+        device: torch.device = torch.device('cpu'),
+    ) -> None:
+        """Init the pixelflipping class.
+
+        NOTE: Classes have to represented by the same number of samples and have to be ordered in consecutive, 
+        increasing order by class index!
+        
         Args:
-            model               (nn.Sequential): model to perform attribution technique on
-            input_batch         (torch.Tensor): Batched inputs (mel-specs) with shape (batch, channel, heightm width). 
-            perturbation_size   (int): Size of perturbation patches
-            perturbation_mode   (str): Defines how to flip pixels (constant, random)
-            num_classes         (int): Classes present in the data
-            data_normaliaztion  (str): Important for inpainting
+            model (nn.Sequential): Moidel to perform the evaluation on.
+            input_batch (torch.Tensor): Batched inputs (mel-specs) with shape (batch, channel, heightm width). 
+            perturbation_size (int, optional): Size of the patches that are being flipped.
+            perturbation_mode (str, optional): Perturbation mode. Options: ['constant', 'inpainting'].
+            num_classes (int, optional): Number of classes present in the data.
+            data_normalization (str, optional): Normalize inpainted image regions.
+            device (str | torch.device, optional): Device.
         """
         self.device = device
         self.input_batch = input_batch.to(self.device)
@@ -61,23 +72,34 @@ class PixelFlipping:
         self.forward_func = forward_func
 
         # create pixel flipper
-        self.pixel_flipper = Flipper(perturbation_size=perturbation_size, perturbation_mode=perturbation_mode, 
-                                     data_normaliaztion=data_normaliaztion, device=device)
+        self.pixel_flipper = Flipper(
+            perturbation_size=perturbation_size, 
+            perturbation_mode=perturbation_mode, 
+            data_normaliaztion=data_normaliaztion, 
+            device=device
+        )
 
-
-    def __call__(self,
-                 configuration_grid: list[dict],
-                 stabilizers: dict = None,
-                 canonizer: zennit.canonizers = SequentialMergeBatchNorm(),
-                 scaled_gamma: bool = False,
-                 composites: list = None,
-                 plot: bool = True,
-                 ):
+    def __call__(
+        self,
+        configuration_grid: list[dict],
+        stabilizers: dict = None,
+        canonizer: zennit.canonizers = SequentialMergeBatchNorm(),
+        scaled_gamma: bool = False,
+        composites: list = None,
+        plot: bool = True,
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], ]:
+        """Loops over the configurations and executes pixel flipping for each configuration.        
         
-        r"""
-        Loops over the configurations and executes pixel flipping for each configuration.        
+        Args:
+            TODO
+        
+        Returns:
+            tuple: A tuple containing:
+                - aupc_scores (Dict[str, np.ndarray]): AUPC scores per configuration.
+                - averaged_pertubed_prediction_logits (Dict[str, np.ndarray]): Averaged logit scores per perturbation step per configuration.
+                - flips_per_perturbation_step (np.ndarray): List that defines the number of patches flipped in each perturbatuion step.
+                - heatmaps (Dict[str, torch.Tensor]): Heatmaps computed with given condiguration.
         """
-
         # configurations for lrp
         self.canonizer = canonizer
         self.stabilizers = stabilizers
@@ -115,7 +137,6 @@ class PixelFlipping:
             for i in range(self.num_classes):
                 relevances.append(compute_relevances(self.model, self.input_batch[i*self.samples_per_class:(i+1)*self.samples_per_class], composite=composite, class_idx=i))
             relevances = torch.concat(relevances, axis=0)
-            print(relevances.shape)
             self.heatmaps[configuration_name] = relevances
             
             # perform pixel flipping
@@ -124,7 +145,6 @@ class PixelFlipping:
                 input_batch=self.input_batch.clone().detach(),
                 R=relevances,
             )
-
             self.aupc_scores[configuration_name] = aupc_per_instance
             self.averaged_pertubed_prediction_logits[configuration_name] = pertubed_predictions
             #self.pertubed_inputs[configuration_name] = pertubed_inputs
@@ -138,8 +158,17 @@ class PixelFlipping:
             
         return self.aupc_scores, self.averaged_pertubed_prediction_logits, flips_per_perturbation_step, self.heatmaps
     
+    def _get_scaled_composite_toy(self, lrp_configuration: Dict[str, Any]) -> Composite:
+        """Construct a zennit composite for relevance attribution in the current configuration.
 
-    def _get_scaled_composite_toy(self, lrp_configuration):
+        NOTE: This function defines a custom name_map for specific experiments.
+
+        Args:
+            lrp_configuration (Dict[str, Any]): Defines which LRP rules are being used fpr relevance attribution.
+
+        Returns:
+            composite (Composite): Zennit Composite for relevance redistribution.
+        """
         # params for lrp
         gamma = lrp_configuration['convolutional'][-1]
         stab1 = 1e-7
@@ -163,15 +192,22 @@ class PixelFlipping:
             (['classifier.4'], Epsilon(epsilon=eps)),
         ]
 
-        composite_name_map = NameMapComposite(
+        return NameMapComposite(
             name_map=name_map,
             canonizers=[self.canonizer],
-        )
+        )    
+    
+    def _get_scaled_composite_peak4(self, lrp_configuration: Dict[str, Any]) -> Composite:
+        """Construct a zennit composite for relevance attribution in the current configuration.
 
-        return composite_name_map
-    
-    
-    def _get_scaled_composite_peak4(self, lrp_configuration):
+        NOTE: This function defines a custom name_map for specific experiments.
+
+        Args:
+            lrp_configuration (Dict[str, Any]): Defines which LRP rules are being used fpr relevance attribution.
+
+        Returns:
+            composite (Composite): Zennit Composite for relevance redistribution.
+        """
         # params for lrp
         gamma = lrp_configuration['convolutional'][-1]
         stab1 = 1e-7
@@ -195,16 +231,20 @@ class PixelFlipping:
             (['classifier.6'], Epsilon(epsilon=eps)),
         ]
 
-        composite_name_map = NameMapComposite(
+        return NameMapComposite(
             name_map=name_map,
             canonizers=[self.canonizer],
         )
 
-        return composite_name_map
+    def _get_composite(self, lrp_configuration: Dict[str, Any]) -> Composite:
+        """Construct a zennit composite for relevance attribution in the current configuration.
 
+        Args:
+            lrp_configuration (Dict[str, Any]): Defines which LRP rules are being used fpr relevance attribution.
 
-    def _get_composite(self, lrp_configuration):
-
+        Returns:
+            composite (Composite): Zennit Composite for relevance redistribution.
+        """
         assert 'convolutional' in lrp_configuration, 'rule for convolutional layers has to be passed'
         assert 'dense' in lrp_configuration, 'rule for dense layers has to be passed'
         assert 'first_layer' in lrp_configuration, 'rule for first layer layers has to be passed'
@@ -216,7 +256,7 @@ class PixelFlipping:
         first_layer_rule = self._get_rule('first_layer', lrp_configuration)
 
         if 'name_map' in list(lrp_configuration.keys()):
-            
+            # build composite
             composite = NameLayerMapComposite(
                 name_map=lrp_configuration['name_map'],
                 layer_map=[
@@ -237,31 +277,34 @@ class PixelFlipping:
                 ],
                 canonizers=[self.canonizer],
             )
-
         return composite
 
-
-    def _get_name_map(self, lrp_configuration):
+    def _get_name_map(self, lrp_configuration) -> Dict[str, BasicHook]:
+        """Create a name map for some configuration.
         
-        name_map = []
+        Args:
+        lrp_configuration (Dict[str, Any]): Defines which LRP rules are being used fpr relevance attribution.
 
+        Returns:
+            name_map (Dict[str, BasicHook]): Maps zennit (LRP) rules to model layers.
+        """
+        name_map = []
         # add rule mapping for first layer
         for key in lrp_configuration:
             if key != 'convolutional' and key != 'dense' and key != 'first_layer':
                 name_map.append(([key], self._get_rule(layertype=key, lrp_configuration=lrp_configuration)))
-        
         return name_map
 
-
-
-    def _get_rule(self, layertype, lrp_configuration):
-        r"""
-        Returns a zennit rule.
-        -----
+    def _get_rule(self, layertype: str, lrp_configuration: Dict[str, Any]) -> BasicHook:
+        """Constructs a LRP rule from the givein configuration.
+        
         Args:
             layertype (str): Can be layertype of special layer name for rule mapping.
-        """
+            lrp_configuration (Dict[str, Any]): Defines which LRP rules are being used fpr relevance attribution.
 
+        Returns:
+            rule (BasicHook): Zennit LRP rule.
+        """
         # check if rule is valid
         if lrp_configuration[layertype][0] not in rule_mapper:
             raise ValueError(f'Not a valid zennit rule for {layertype} layers!')
@@ -289,8 +332,8 @@ class PixelFlipping:
             # all other rules just need stabilizer so we can get the rule from rule_mapper and only pass a stabilizer arg
             return rule_mapper[rule](stabilizer=stabilizer)
 
-
     def _get_configuration_name(self, lrp_configuration):
+        """Creates string as configuration identifier."""
         # construct configuration string
         conf: str = ''
         for key in lrp_configuration:
@@ -305,12 +348,13 @@ class PixelFlipping:
                 continue
             else:
                 conf += ruletype + '_' + str(lrp_configuration[key][1]) + '_' 
-        
         return conf
-    
 
     def plot_aupcs(self, flips_per_perturbation_step, title='EpsGammaWSquare'):
-
+        """Creates an AUPC plot.
+        
+        Outputs a line plot displaying the averaged AUPC scores in each perturbation step for each configuration.
+        """
         for key in self.aupc_scores:
             # get data for each configuration 
             x_flipped_patches = np.cumsum(np.array(flips_per_perturbation_step)) / np.array(flips_per_perturbation_step).sum() * 100
@@ -329,4 +373,3 @@ class PixelFlipping:
             plt.ylabel('Averaged target class logit')
             plt.grid(ls=':', alpha=0.5)
             plt.legend()
-

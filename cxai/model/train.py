@@ -1,68 +1,84 @@
 import os
 import random
+from datetime import datetime
+from typing import Dict
+
 import pandas as pd
 import torch
 import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
-from datetime import datetime
 
 from cxai.model.dataloader.gtzan_dataset import get_data_loaders
 from cxai.model.create_model import VGGType
 
 
-def fit(model: nn.Module, 
-        loss_func, 
-        optimizer: torch.optim, 
-        dataloaders: dict, 
-        num_epochs: int = 10, 
-        device = torch.device('cpu'), 
-        scheduler = None, 
-        from_epoch: int = 0, 
-        model_path: str = None,
-        save_step: int = 100,
-        is_gtzan: bool = True,
-        is_gtzan_vggish: bool = False,
-        ):
+def fit(
+    model: nn.Module, 
+    loss_func: nn.Module, 
+    optimizer: torch.optim.Optimizer, 
+    dataloaders: Dict[str,torch.utils.data.DataLoader], 
+    num_epochs: int = 100, 
+    device: str | torch.device = torch.device('cpu'), 
+    scheduler: torch.optim.lr_scheduler._LRScheduler | None = None, 
+    from_epoch: int = 0, 
+    model_path: str | None = None,
+    save_step: int = 100,
+    is_gtzan: bool = True,
+) -> None:
+    """Performs training of a neural network.
     
-    print('starting fit')
-    
+    Args:
+        model (nn.Module): Neural network model.
+        loss_func (nn.Module): Loss function.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        dataloaders (Dict[str,torch.utils.data.DataLoader]): Dataloader for different splits ['train', 'valid'].
+        num_epochs (int, optional): Number of epochs to train the network.
+        device (str | torch.device, optional): Device.
+        scheduler (torch.optim.lr_scheduler._LRScheduler | None, optional): Learning rate scheduler.
+        from_epoch (int, optional): Nessecary if a pretrained model should be fine tuned.
+        model_path (str | None, optional): Path to the pretrained model.
+        save_step (int, optional): Number of training epochs after model checkpoint should be saved.
+        is_gtzan (bool, optional): 
+    """
+    device = torch.device(device) if isinstance(device, str) else device
     model.to(device)
-
-    train_losses = []
-    valid_losses = []
-    train_acc = []
-    valid_acc = []
     
+    print('Starting training...')
+
+    # if we train new model, create model path and folder
     if from_epoch == 0:
         time = datetime.now()
         model_path = model_path if model_path else os.path.join('../models', str(time))
         if not os.path.exists(model_path):
             os.makedirs(model_path)
 
-
+    train_losses, valid_losses, train_acc, valid_acc = [], [], [], []
     tbar = tqdm(range(1, num_epochs+1))
-
+    # start main training loop
     for epoch in tbar:
-
+        # iterate train and validation pahse in each epoch
         for phase in ['train', 'valid']:
-
             if phase == 'train':
                 model.train()
             else:
                 model.eval() 
 
+            # track loss
             running_loss = 0.0
             running_acc = 0.0
-
             for xb, yb in dataloaders[phase]:
                 xb, yb = xb.to(device), yb.to(device)
                 
                 if is_gtzan:
-                    # reshape validation chunk level predictions (see dataset)
+                    # reshape validation chunk lables (see dataset for more information)
                     if phase == 'valid':
                         if xb.dim() == 5:
-                            # case GTZAN, test data is of the form (batch x chunks x channel x mel-bin x time-bin), this is because for testing 
+
+                            # TODO: repeat labels in dataset for speed up
+
+                            # case GTZAN, test data is of the form (batch x chunks x channel x mel-bins x time-bins), 
+                            # this is because for testing 
                             # we dont extract one random slice of an audio but slice each audio in num_chunks chunks
                             _, chunks, c, f, t = xb.size() # b=batch
                             yb = yb.repeat_interleave(chunks)
@@ -71,25 +87,11 @@ def fit(model: nn.Module,
                             _, c, f, t = xb.size()
 
                         xb = xb.view(-1, c, f, t)
-                
-                if is_gtzan_vggish:
-                    # reshape validation chunk level predictions (see dataset)
-                    if xb.dim() == 5:
-                        # case GTZAN, test data is of the form (batch x chunks x channel x mel-bin x time-bin), this is because for testing 
-                        # we dont extract one random slice of an audio but slice each audio in num_chunks chunks
-                        _, chunks, c, f, t = xb.size() # b=batch
-                        yb = yb.repeat_interleave(chunks)
-                    else:
-                        # case toy data
-                        _, c, f, t = xb.size()
-
-                    xb = xb.view(-1, c, f, t)
-
 
                 with torch.set_grad_enabled(phase == 'train'):
                     loss, acc = loss_batch(model, loss_func, xb, yb, opt=optimizer, phase=phase)
 
-                # stats
+                # log stats
                 running_loss += loss
                 running_acc += acc
             
@@ -118,7 +120,6 @@ def fit(model: nn.Module,
 
     #return train_stats, model_path
 
-
 def loss_batch(model: nn.Module, loss_func, xb, yb, opt, phase='train'):
 
     out = model(xb)
@@ -131,20 +132,11 @@ def loss_batch(model: nn.Module, loss_func, xb, yb, opt, phase='train'):
         opt.zero_grad()
 
     _, pred = torch.max(out, dim=1)
-
     acc = torch.sum(pred==yb.data) / yb.size(0)
-
     return float(loss.item()), float(acc.detach().cpu())
 
-
-
 def save_checkpoint(model_path, model_state, opt_state, epoch, from_epoch):
-    """
-    Save model .pth file and train stats every 50 epochs.
-
-    """
-
-    # save model
+    """Save model .pth file and train stats every 50 epochs."""
     torch.save({
             'model_state_dict': model_state,
             'opt_state_dict': opt_state,
@@ -153,14 +145,10 @@ def save_checkpoint(model_path, model_state, opt_state, epoch, from_epoch):
             'numpy_rng_state': np.random.get_state(),
         }, os.path.join(model_path, 'best_model_%s.pth' % epoch))
 
-
-
-
 def save_train_stats(path_to_model, train_losses, train_acc, valid_losses, valid_acc, from_epoch):
     # just overwrite the train stats csv with the new train stats
     df_train_stats = pd.DataFrame({'train_loss': train_losses, 'train_acc': train_acc, 'valid_losses': valid_losses, 'valid_acc': valid_acc})
     df_train_stats.to_csv(os.path.join(path_to_model, 'train_stats_%d.csv' % from_epoch))
-
 
 
 # for training in cluster with CUDA

@@ -1,29 +1,30 @@
+from typing import Tuple
+
 import torch
 import torch.nn as nn
 
-
-# TODO: change inti to take path to config file as input
+# TODO: change init to take path to config as input
 
 class VGGType(torch.nn.Module):
     
     def __init__(self, 
-                n_filters: tuple = (32, 64, 96, 128), 
-                conv_kernel: tuple = (3,3),
-                pool_kernels: tuple = ((4,4), (2,4), (2,2), (2,2)), 
+                n_filters: Tuple[int,int,int,int] = (32, 64, 96, 128), 
+                conv_kernel: Tuple[int,int] = (3,3),
+                pool_kernels: Tuple[Tuple[int,int],] = ((4,4), (2,4), (2,2), (2,2)), 
                 n_dense: int = 512, 
                 n_classes: int = 10,
                 dropout: float = 0.2, 
                 block_depth: int = 2,
                 dense_depth: int = 2,
-                input_size: tuple = (128,256),
+                input_size: Tuple[int,int] = (128,256),
                 padding: str = 'same',
                 stride: int = 1,
-                conv_bn=True, 
-                dense_bn=True,
+                conv_bn: bool = True, 
+                dense_bn: bool = True,
                 **kwargs
                 ):
-        r"""
-        Receive arguments and initialise the  NN.
+        """Receive arguments and initialise the  NN.
+
         -----
         Args:
             n_filters       (tuple): number of filters per convolutional block
@@ -62,24 +63,24 @@ class VGGType(torch.nn.Module):
 
 
     def forward(self, x):
-
-        # extract features
         x = self.features(x)
-
-        # NOTE: hardcode flat features, the function num_flat_features's only purpose is for grid search of best model architecture
+        # NOTE: hardcode flat features, the only purpose of num_flat_features is for grid search of best model architecture
         #x = x.view(-1, num_flat_features(x)) 
         x = x.view(-1, 2048)
-
-        # feed forward
         logits = self.classifier(x)
-
         return logits
 
 
-
-def get_conv_block_layers(n_in, n_out, block_depth=2, kernel: tuple = (3,3), stride: int = 1, padding: int = 1, padding_mode='zeros', conv_bn=True):
-    r"""
-    Creates list of layers for a convolutional block (= Conv2d -> BatchNorm2d -> ReLU)
+def get_conv_block_layers(n_in: int, 
+                          n_out: int, 
+                          block_depth: int = 2, 
+                          kernel: Tuple[int,int] = (3,3), 
+                          stride: int = 1, 
+                          padding: int = 1, 
+                          padding_mode: str = 'zeros', 
+                          conv_bn: bool = True
+                          ) -> list:
+    """Creates list of layers for a convolutional block (= Conv2d -> BatchNorm2d -> ReLU)
     
     -----
     Args:
@@ -93,17 +94,24 @@ def get_conv_block_layers(n_in, n_out, block_depth=2, kernel: tuple = (3,3), str
     layers = []
     for i in range(block_depth):
         layers.extend(
-            [nn.Conv2d(in_channels=n_in if i==0 else n_out, out_channels=n_out, kernel_size=kernel, stride=stride, padding=padding, padding_mode=padding_mode)] +
+            [nn.Conv2d(in_channels=n_in if i==0 else n_out, out_channels=n_out, kernel_size=kernel, \
+                       stride=stride, padding=padding, padding_mode=padding_mode)] +
             ([nn.BatchNorm2d(num_features=n_out)] if conv_bn else []) +
             [nn.ReLU()]
         )
     return layers
 
 
-def get_dense_block_layers(n_in, n_out, dropout, depth=2, dense_bn=True, **kwargs):
-    r"""
-    Creates list of layers for the classification head. 
+def get_dense_block_layers(n_in: int, 
+                           n_out: int, 
+                           dropout: float, 
+                           depth: int = 2, 
+                           dense_bn: bool = True, 
+                           **kwargs
+                           ) -> list:
+    """Creates list of layers for the classification head. 
     Each dense block is composed as Linear -> BatchNorm2d -> ReLU (-> Dropout).
+
     -----
     Args:
         n_in    (int): input dimension
@@ -112,7 +120,7 @@ def get_dense_block_layers(n_in, n_out, dropout, depth=2, dense_bn=True, **kwarg
         depth   (int): number of dense layers in dense block
     """
     layers = []
-    # create layers and add to layers
+    # create layers and add to list
     for i in range(depth):
         layers.extend(
             [nn.Linear(in_features=n_in if i==0 else n_out, out_features=n_out)] +
@@ -122,30 +130,28 @@ def get_dense_block_layers(n_in, n_out, dropout, depth=2, dense_bn=True, **kwarg
         # add dropout layer if wanted
         if dropout:
             layers.extend([nn.Dropout(dropout)])
-
     return layers
     
 
-
-def get_out_shape(input_size=(128,216), 
-                conv_kernel=(3,3), 
-                pool_kernels=((4,4), (2,4), (2,2), (2,2)), 
+def get_out_shape(input_size: Tuple[int,int] = (128,216), 
+                conv_kernel: Tuple[int,int] = (3,3), 
+                pool_kernels: Tuple[Tuple[int,int]] = ((4,4), (2,4), (2,2), (2,2)), 
                 out_filters: int = 128,
-                padding=1, 
-                stride=1, 
-                block_depth=2):
-    r"""
-    Calculates the output shape of the feature extractor.
+                padding: int = 1, 
+                stride: int = 1, 
+                block_depth: int = 2
+                ) -> int:
+    """Calculates the output shape of the feature extractor.
 
     -----
     Args:
         input_size (tuple): Size of input image
-        conv_kernel     (tuple): Kernel size for convolutional layers
-        pool_kernels    (tuple): Tuple of Tuples with kernel sizes for maxpool layers
+        conv_kernel (tuple): Kernel size for convolutional layers
+        pool_kernels (tuple): Tuple of Tuples with kernel sizes for maxpool layers
         out_filters (int): Number of filters in last conolutional layer      
-        block_depth     (int): number of convolutional layers in each block
-        padding         (int): padding for conv filters
-        stride          (int): stride of convolution
+        block_depth (int): number of convolutional layers in each block
+        padding (int): padding for conv filters
+        stride (int): stride of convolution
     Returns:
         conv_out_shape (int): Shape of flattend output tensor of last convolutional layer
     """
@@ -165,14 +171,12 @@ def get_out_shape(input_size=(128,216),
         outx = int((outx - (pool_kernel[0] - 1) - 1) / pool_kernel[0] + 1)
         outy = int((outy - (pool_kernel[1] - 1) - 1) / pool_kernel[1] + 1)
         tensor_size = (outx, outy)
-
     return tensor_size[0] * tensor_size[1] * out_filters
 
 
-
-def num_flat_features(x):
-    r"""
-    Calculates flattend size of input tensor x for reshaping into flat tensor
+def num_flat_features(x: torch.Tensor):
+    """Calculates flattend size of one input tensor contained in the batch x 
+    for reshaping into purposes.
 
     -----
     Args:
@@ -181,9 +185,7 @@ def num_flat_features(x):
         num_features (int): number of features of flattend input tensor to classifier
     """
     size = x.size()[1:]  # all dimensions except the batch dimension
-
     num_features = 1
     for s in size:
         num_features *= s
-        
     return num_features

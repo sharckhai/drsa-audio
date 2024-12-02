@@ -1,5 +1,5 @@
 import os
-from Typing import Tuple
+from typing import Tuple, List
 
 import numpy as np
 import torch
@@ -13,22 +13,33 @@ from cxai.utils.constants import CLASS_IDX_MAPPER, AUDIO_PARAMS
 class Loader():
     """
     This class serves as dataloader for specific cases like evaluation procedures or data preparation processes.
+
+    Attributes:
+        TODO
     """
 
-    def __init__(self,
-                 case: None,
-                 sample_rate: int = 16000,
-                 n_fft: int = 800,
-                 hop_length: int = 360,
-                 n_mels: int = 128,
-                 slice_length: int = 3,
-                 width: int = 128
-                 ) -> None:
-        """
+    def __init__(
+        self,
+        case: str | None = None,
+        sample_rate: int = 16000,
+        n_fft: int = 800,
+        hop_length: int = 360,
+        n_mels: int = 128,
+        slice_length: int = 3,
+        width: int = 128
+    ) -> None:
+        """Init audio loader class.
+
         Args:
-            case (str): Defines which audio parameters should be initialized for the transformation from
-                        wav to log-mel-spectrogram. options [gtzan, toy].
+            case (str): Options ['gtzan', 'toy'].
+            sample_rate (int): Sample rate.
+            n_fft (int): Nuber of fft bins for STFT.
+            hop_length (int): Hop size between bins.
+            n_mels (int): Number of mel bins.
+            slice_length (int): Time length of audio snippets.
+            width (int): Width of mel spectrogram.
         """
+        # load audio params
         if case is not None and case in list(AUDIO_PARAMS.keys()):
             self.sample_rate = AUDIO_PARAMS[case]['sample_rate']
             n_fft = AUDIO_PARAMS[case]['n_fft']
@@ -41,43 +52,59 @@ class Loader():
             self.n_mels = n_mels
             self.slice_length = slice_length
             self.width = width
-
-        self.wav2spec = torchaudio.transforms.Spectrogram(n_fft=n_fft, hop_length=hop_length, power=None)
-        self.spec2mel = torchaudio.transforms.MelScale(n_mels=self.n_mels, n_stft=n_fft // 2 + 1, sample_rate=self.sample_rate)
+        # init waveform to audio converter
+        self.wav2spec = torchaudio.transforms.Spectrogram(
+            n_fft=n_fft, 
+            hop_length=hop_length, 
+            power=None
+        )
+        # init freqeuency to mel scale converter
+        self.spec2mel = torchaudio.transforms.MelScale(
+            n_mels=self.n_mels, 
+            n_stft=n_fft // 2 + 1, 
+            sample_rate=self.sample_rate
+        )
         
-    
-    def load(self, 
-             path_to_audio: str,  
-             num_chunks: int = 1, 
-             startpoint: int = 0, 
-             return_wav: bool = False
-             ) -> torch.Tensor | Tuple[torch.Tensor, torch.Tensor]:
+    def load(
+        self, 
+        path_to_audio: str,  
+        num_chunks: int = 1, 
+        startpoint: int = 0, 
+        return_wav: bool = False
+    ) -> torch.Tensor | Tuple[torch.Tensor, torch.Tensor]:
         
         """Loads audio sample, slices and normalizes it by peak and converts it 
         into a log-mel-spectrogram.
 
-        -----
         Args:
-            path_to_audio (str): path to the audio to load
-            num_chunks (int): number of slices that should be extracted from the audio
-            startpoint (int): startpoint in seconds where to extract the first chunk
-            return_wav (bool): control flag if the waveform audio should also be returned
+            path_to_audio (str): Path to the audio to load.
+            num_chunks (int): Number of slices that should be extracted from the audio.
+            startpoint (int): Startpoint in seconds where to extract the first chunk.
+            return_wav (bool): Control flag if the waveform audio should also be returned.
+
         Returns:
-            mel_normed (torch.Tensor): log-mel-spectrogram
+            mel_normed (torch.Tensor): Log-mel-spectrogram.
         """
         wav, _ = torchaudio.load(path_to_audio)
         wav = wav.requires_grad_(False)
 
+        # slice the audio
         if self.slice_length != 0:
-            wav = get_slice(wav, slice_length=self.slice_length, num_chunks=num_chunks,
-                            start_point=startpoint, sample_rate=self.sample_rate)
-        
+            wav = get_slice(
+                wav, 
+                self.slice_length,
+                startpoint,
+                num_chunks,
+                self.sample_rate
+            )
+        # normalize waveform by peak
         wav = peak_normalizer(wav)
+        # transform to mel spectrogram
         mel_normed = self.transform_wav(wav)
+
         if return_wav:
             return wav, mel_normed
         return mel_normed
-    
 
     def load_batch(self, songlist: list, startpoints: list = None) -> torch.Tensor:
         """Loads snippets of a given batch.
@@ -90,22 +117,23 @@ class Loader():
         for name, startpoint in zip(songlist, startpoints):
             samples.append(self.load(name, startpoint=startpoint))
         return torch.stack(samples, dim=0).view(-1, 1, self.n_mels, self.width)
-        
 
-    def transform_wav(self, wav: torch.Tensor, return_all: bool = False, clamp: bool = True) -> torch.Tensor:
+    def transform_wav(
+        self, 
+        wav: torch.Tensor, 
+        return_all: bool = False, 
+        clamp: bool = True
+    ) -> torch.Tensor:
         """Transforms wav-form audio into logmel-spectrogram.
         
-        ----
         Args:
-            wav (torch.tensor): Audio snippet
-            return_all (bool): Flag to control the returns. If true all audio representations are returned. 
-                               This is essential for Mel2Audio in audiogen.py.
-            clamp (bool): flag To define if log-amplitude values of spectrogram should be clamped to a certain 
-                               (negative)value
-        Returns:
-            (torch.tensor): log-mel-spectrogram
-        """
+            wav (torch.Tensor): Waveform audio.
+            return_all (bool): Flag to control the returns. If True, all audio representations are returned. 
+            clamp (bool): Clamp the log-amplitudes at a negative value.
 
+        Returns:
+            logmel (torch.Tensor): log-mel-spectrogram.
+        """
         # complex spectrogram
         spec = self.wav2spec(wav)
         # mel spectrogram
@@ -126,7 +154,6 @@ class Loader():
             has to equal self.width ({self.width})."
         return logmel.reshape(-1,1,self.n_mels,self.width)
 
-
     def load_all_representations(self, path_to_audio: str, startpoint: int = None):
         """Calls self.load with return_all=True."""
         return self.load(path_to_audio, startpoint, return_all=True)
@@ -145,23 +172,25 @@ def shuffle_and_truncate_databatch(data_batch, paths_to_songs, N, seed=42):
     return data_batch, paths_to_songs
 
 
-def get_songlist(path, 
-                 genre: str = None,
-                 excluded_folds: list = None,
-                 num_folds: int = 5, 
-                 return_list: bool = True, 
-                 genres: dict = CLASS_IDX_MAPPER):
+def get_songlist(
+    path, 
+    genre: str = None,
+    excluded_folds: list = None,
+    num_folds: int = 5, 
+    return_list: bool = True, 
+    genres: dict = CLASS_IDX_MAPPER
+) -> (List[str]):
     """Function to get list of audios of specific genre in defined folds.
     
-    -----
     Args:
-        genre           (str): genre to load instances from
-        excluded_folds  (list): list of folds that should be EXCLUDED. 
-        num_folds       (int): total number of folds
-        return_list     (bool): return flag if list or dict should be returned by this function
-        genre_dict      (dict): dict which maps genre strings to int
+        genre (str): genre to load instances from
+        excluded_folds (list): list of folds that should be EXCLUDED. 
+        num_folds (int): total number of folds
+        return_list (bool): return flag if list or dict should be returned by this function
+        genre_dict (dict): dict which maps genre strings to int
+
     Returns: 
-        songlist
+        songpaths (List[str]): Paths to songs.
     """
 
     #assert path.startswith('.'), 'path has to be an absolute path'

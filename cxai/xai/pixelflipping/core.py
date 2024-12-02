@@ -4,49 +4,67 @@ import cv2
 
 
 class Flipper:
+    """Core for pixelflipping experiments.
 
-    def __init__(self, 
-                 perturbation_size: int = 16, 
-                 perturbation_mode: str = 'constant',
-                 device: torch.device = torch.device('cpu'),
-                 data_normaliaztion: str = 'normalization',
-                 ):
+    Given a model, an input batch, and precalculated relevance heatmaps for the provided inputs, 
+    this class flips performs patch flipping on all inputs while simultaneously tracking model outputs.
+    
+    Attributes:
+        perturbation_size (int): Size of the patches that are being flipped.
+        perturbation_mode (str): Perturbation mode. Options: ['constant', 'inpainting'].
+        data_normaliaztion (str): Data normalization technique. Used for inpainting case.
+        device (str | torch.device): Device.
+    """
 
+    def __init__(
+        self, 
+        perturbation_size: int = 16, 
+        perturbation_mode: str = 'constant',
+        data_normaliaztion: str = 'normalized',
+        device: str | torch.device = torch.device('cpu')
+    ) -> None:
+        """Init core flipper.
+
+        This class is repeatedly called from PixelFlipping in pf.py, and computes the pixel flipping metric
+        with the provided revealnce maps obtained according to a given LRP configuration.
+        
+        Args:
+            perturbation_size (int, optional): Size of the patches that are being flipped.
+            perturbation_mode (str, optional): Perturbation mode. Options: ['constant', 'inpainting'].
+            data_normaliaztion (str, optional): Data normalization technique. Used for inpainting case.
+            device (str | torch.device, optional): Device.
+        """
         self.device = device
         self.perturbation_size = perturbation_size
         self.perturbation_mode = perturbation_mode
         self.data_normaliaztion = data_normaliaztion
-        self.scale = 1
 
+    def __call__(
+        self, 
+        forward_func: callable,
+        input_batch: torch.Tensor, 
+        R: torch.Tensor,
+        flipping_mode: str = None,
+    ) -> np.ndarray:
+        """Executes the pixel flipping for a specific configuration.r
 
-    def __call__(self, 
-                 forward_func: callable,  ##### introduce relu operation to model output to focus on positive only
-                 input_batch: torch.Tensor, 
-                 R: torch.Tensor,
-                 flipping_mode: str = None,
-                 seed: int = 42,
-                 ) -> np.ndarray:
-        """
-        Executes the pixel flipping for a specific configuration.
-        This class works on batched inputs and respective relvance maps. 
-        Input batch has to have the shape (batch, channel, height, width).
+        NOTE: This class works on batched inputs and respective relvance maps. Each class has to be 
+        represented by the same number of samples. Samples have to be sorted in consecutive order (from class 0-N)!
 
-        NOTE: Each class has to be represented by the same number of samples. 
-        The samples have to be sorted in consecutive order (with increasing classes)!!!
-
-        -----
         Args:
             forward_func (callable): Represents the model and ouputs prediction scores (Logits).
             input (torch.tensor): Batched inputs. Shape has to be: (batch, channel, height, width).
             R (torch.Tensor): Batched relevance matrices. Has to be in same order as input.
-            flipping_mode (str): Flip patches at random or according to relevances (R)
-        Returns:
-            aupc (float): Area under the pipxel flipping curve.
-        """
+            flipping_mode (str, optional): Flip patches at random or according to relevances.
 
+        Returns:
+            tuple: A tuple containing:
+                - aupc_per_instance (np.ndarray): AUPC score per instance.
+                - perturbed_predictions (np.ndarray): Averaged logit score in each perturbation step across all instances in the batch.
+                - flips_per_perturbation_step (List[int]): Flips per perturbation step.
+        """
         # input_batch [batch, c, height, width], R shape [batch, n_concepts, c, height, width]
         # NOTE: In case of standard attribution set n_concepts = 1
-
         if flipping_mode != 'random':
             if R.dim() < 5: R.unsqueeze(1) # in case of standard attribution, add virtual concept dimension with n_concepts == 1
 
@@ -60,9 +78,10 @@ class Flipper:
         # generate list of patch indices to flip in each step
         if self.flipping_mode == 'random':
             # generate an array of patch idcs to flip for each sample in batch
-            sorted_patch_indices_by_relevance = torch.stack([torch.randperm(self.num_patches, device=self.device) for _ in range(self.batch_size)])
+            sorted_patch_indices_by_relevance = torch.stack(
+                [torch.randperm(self.num_patches, device=self.device) for _ in range(self.batch_size)]
+            )
             self.sorted_patch_indices_by_relevance = sorted_patch_indices_by_relevance.reshape(self.batch_size, 1, -1)
-
         else:
             self.R = R.to(self.device)
             self.sorted_patch_indices_by_relevance = self._generate_patches()
@@ -70,13 +89,16 @@ class Flipper:
         # get first prediction score of original input
         pertubed_input_batch        = input_batch.clone().detach().requires_grad_(False)
         pertubed_inputs             = [pertubed_input_batch.detach().cpu().numpy()] # for inspection purposes
-        pertubed_predictions        = [self._get_prediction_score(pertubed_input_batch)]
+        perturbed_predictions        = [self._get_prediction_score(pertubed_input_batch)]
         flips_per_perturbation_step = np.array([0])
         flipped_patches             = 0
         masks_per_step              = []
         # generate raw mask filled with ones (bool)
-        masks = torch.ones((self.batch_size, self.num_channels, self.height, self.width), \
-                           dtype=torch.int16, device=self.device).requires_grad_(False)
+        masks = torch.ones(
+            (self.batch_size, self.num_channels, self.height, self.width), 
+            dtype=torch.int16, 
+            device=self.device
+        ).requires_grad_(False)
 
         print('Flipping patches...')
 
@@ -99,28 +121,30 @@ class Flipper:
 
             # [batch]
             logits = self._get_prediction_score(pertubed_input_batch)
-            pertubed_predictions.append(logits)
+            perturbed_predictions.append(logits)
 
             flips_per_perturbation_step = np.append(flips_per_perturbation_step, patches_to_flip)
             flipped_patches += patches_to_flip
 
         # [perturbation_steps, num_samples]
-        pertubed_predictions = np.stack(pertubed_predictions, axis=0)#.reshape(len(flips_per_perturbation_step), self.n_classes, -1)
+        perturbed_predictions = np.stack(perturbed_predictions, axis=0)#.reshape(len(flips_per_perturbation_step), self.n_classes, -1)
         masks_per_step = np.stack(masks_per_step, axis=0)
 
-        # calculate the area under the pixel flipping curve
-        #aupc_per_instance = self._calculate_class_aupc(pertubed_predictions, masks_per_step)
-        aupc_per_instance = self._calculate_aupc(pertubed_predictions, flips_per_perturbation_step)
+        # calculate the area under the pixel flipping curve for each instance
+        aupc_per_instance = self._calculate_aupc(perturbed_predictions, flips_per_perturbation_step)
+        perturbed_predictions = perturbed_predictions.mean(axis=1)
+        return aupc_per_instance, perturbed_predictions, flips_per_perturbation_step#, pertubed_inputs
 
-        #total_aupc = class_aupcs.mean()
-        pertubed_predictions = pertubed_predictions.mean(axis=1)
+    def _flip(self, pertubed_inputs: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
+        """Flip inputs as defined in the prebuild masks.
+        
+        Args:
+            perturbed_inputs (torch.Tensor): Current inputs batches during som eperturbation iteration.
+            masks (torch.Tensor): Perturbation masks.
 
-        return aupc_per_instance, pertubed_predictions, flips_per_perturbation_step#, pertubed_inputs
-
-    
-    
-    def _flip(self, pertubed_inputs, masks):
-
+        Returns:
+            perturbed_inputs (torch.Tensor): Perturbed inputs.
+        """
         # copy masks and inputs
         pertubed_inputs_copy = pertubed_inputs.clone().detach()
         masks_copy = masks
@@ -128,9 +152,7 @@ class Flipper:
         if self.perturbation_mode == 'constant':
             return pertubed_inputs_copy * masks_copy #+ torch.abs(masks_copy-1)*(-1)  # mask pathces with zeros
         
-        
         elif self.perturbation_mode == 'inpainting':
-
             # cv2.inpaint expects the patches to inpaint in mask filled with ones else zero
             masks = torch.abs(masks_copy - 1)
             inpainted_images = []
@@ -151,7 +173,6 @@ class Flipper:
                     # set patch in original image to 0 and add the normalized inpainted image in which inly the patch remains
                     inpainted_image = image * np.abs(mask - 1) + normalized_patch
 
-
                 if self.data_normaliaztion == 'min':
                     # normalize the inpainted image patch seperate from original image
                     normalized_patch = (2*((inpainted_image.reshape(mask.shape) - np.min(inpainted_image)) / (np.max(inpainted_image) - np.min(inpainted_image)))-1) * mask
@@ -162,14 +183,17 @@ class Flipper:
                 inpainted_images.extend(torch.tensor(inpainted_image[None], dtype=torch.float32, device=self.device).requires_grad_(False))
 
             return torch.stack(inpainted_images, dim=0).reshape(self.batch_size, self.num_channels, self.height, self.width).to(self.device)
-
-            
         else:
             raise ValueError('Provided perturbation mode not available. Possible perturbation modes are "constant" and "inpainting".')
 
-
-
     def _generate_patches(self) -> torch.Tensor:
+        """Generates a list of patch indices that have to be flipped during the flipping operation.
+
+        Patches are numbered from top left to bpttom right.
+        
+        Returns:
+            sorted_patch_indices_by_relevance (torch.Tensor): 
+        """
 
         # shape [batch, n_concepts, height, width] (get rid of channel dimension without squeezing n_concept dimension if n_concept == 1)
         R_ = self.R.view(self.batch_size, self.n_concepts, self.height, self.width).clone().detach()
@@ -186,18 +210,15 @@ class Flipper:
 
         # shape [batch, n_concepts, num_patches]
         sorted_patch_indices_by_relevance = torch.argsort(patch_relevances, descending=True, dim=-1)#.to(self.device)
-
         return sorted_patch_indices_by_relevance
-    
 
-
-    def _get_flipping_mask(self, patches_to_flip, flipped_patches) -> torch.Tensor:
-        """
-        Function to build flipping mask. Depending on perturbation step, the mask includes several patches.
+    def _get_flipping_mask(self, patches_to_flip: int, flipped_patches: int) -> torch.Tensor:
+        """Function to build flipping mask. Depending on perturbation step, the mask includes several patches.
         
-        -----
         Args:
             patches_to_flip (int): Precalculated number of patches that have to be flipped during this perturbation step.
+            flipped_patches (int): How many patches have already been flipped.
+
         Returns:
             mask (torch.Tensor): Tensor of ones with the size of input. NOTE: Patches to be pertub are filled with zeros.
         
@@ -206,7 +227,6 @@ class Flipper:
         Problem then is, that batched patch-flips aren't possible anymore, since it is possible that each 
         sample has a different number of patches that have to be flipped (several concepts can have 
         overlapping patches with highest relevance).
-
         """        
         # get list of patch indices that have to be flipped
         patch_idcs = self.sorted_patch_indices_by_relevance[..., flipped_patches:flipped_patches+patches_to_flip]
@@ -214,8 +234,11 @@ class Flipper:
         patch_idcs = patch_idcs.transpose(-2,-1).reshape(self.batch_size, -1)
 
         # generate raw mask filled with ones (bool)
-        masks = torch.ones((self.batch_size, self.num_channels, self.height, self.width), \
-                           dtype=torch.int16, device=self.device).requires_grad_(False)
+        masks = torch.ones(
+            (self.batch_size, self.num_channels, self.height, self.width),
+            dtype=torch.int16, 
+            device=self.device
+        ).requires_grad_(False)
             
         # get startpoints of the patches to mask for every datapoint
         x_locations = patch_idcs // int(self.width/self.perturbation_size) * self.perturbation_size
@@ -239,43 +262,46 @@ class Flipper:
         # for debugging
         assert masks.size() == (self.batch_size, self.num_channels, self.height, self.width), 'mask size is wrong'
         assert (torch.abs(masks-1)).sum() <= self.perturbation_size**2 * patches_to_flip * self.batch_size * self.n_concepts, 'too many masked patches!'
-
         return masks
-    
 
-    def _get_prediction_score(self, pertubed_inputs) -> np.ndarray:
-        """
-        Calculates the averaged prediction score over all samples in the batch.
-        -----
+    def _get_prediction_score(self, pertubed_inputs: torch.Tensor) -> np.ndarray:
+        """Calculates the averaged prediction score over all samples in the batch.
+        
         Args:
-            pertubed_inputs (torch.tensor): Expects balanced batch with samples in consecutive order
+            pertubed_inputs (torch.Tensor): Expects balanced batch containing instances in consecutive order.
+        
         Returns:
-            mean_pred_score (float): Averaged prediction score over all samples (relu(logits).mean()).
+            pred_scores (np.ndarray): Prediciton scores of perturbed input samples.
         """
-
         # obtain model outputs, shape [batch, n_classes]
         out = self.forward_func(pertubed_inputs)
         n_classes = out.size(1)
         self.n_classes = n_classes
 
         # only keep class specific output, shape ->[batch, 1]
-        class_specific_outputs = out[np.arange(self.batch_size), \
-                                     np.repeat(np.arange(n_classes), self.batch_size//n_classes if self.batch_size//n_classes > 0 else 1)]
-
+        class_specific_outputs = out[
+            np.arange(self.batch_size), 
+            np.repeat(np.arange(n_classes), 
+            self.batch_size//n_classes if self.batch_size//n_classes > 0 else 1)
+        ]
         # apply relu, reshape and get avergae score per class
         pred_scores = torch.clamp(class_specific_outputs, min=0).squeeze()
+        return pred_scores.detach().cpu().numpy()
 
-        return pred_scores.detach().cpu().squeeze().numpy()
+    def _calculate_aupc(
+        self, 
+        pertubed_predictions: np.ndarray, 
+        flips_per_perturbation_step: int
+    ) -> np.ndarray:
+        """Calculates the AUPC-score with self.flips_per_perturbation_step and self.perturbed_input.
+        
+        Args:
+            pertubed_predictions (np.ndarray)
+            flips_per_perturbation_step (int):
 
-
-    def _calculate_aupc(self, pertubed_predictions, flips_per_perturbation_step) -> np.ndarray:
-        """
-        Calculates the AUPC-score with self.flips_per_perturbation_step and self.perturbed_input.
-        -----
         Returns:
             aupc_score (np.arrray): AUPC score for every instance, array has shape [num_classes, samples_per_class]
         """
-
         # pertubed_predictions: shape [perturbation_steps, batch]
         frac = (pertubed_predictions[:-1] - pertubed_predictions[1:]) / 2
         weights = np.cumsum(flips_per_perturbation_step[1:]) / flips_per_perturbation_step[1:].sum()
@@ -283,7 +309,6 @@ class Flipper:
 
         # aupcs per instance sorted by classes, shape [num_classes, samples_per_class]
         aupc_per_class = aupc_per_instance.reshape(self.n_classes, -1)
-
         return aupc_per_class
     
 

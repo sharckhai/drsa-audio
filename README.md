@@ -1,6 +1,8 @@
 # DRSA-AUDIO
 
-Disentangled explanations for neural network predictions on audio data. [GitHub Webpage](https://sharckhai.github.io/drsa-audio-results/)
+Disentangled explanations for neural network predictions on audio data. 
+
+[GitHub Webpage](https://sharckhai.github.io/drsa-audio-results/)
 
 ## Description
 
@@ -19,7 +21,7 @@ representing different class specific objects that guide a the models descision.
 For a more extensive overview of the experiments undertaken with this code please refer to the webpage linked above.
 
 ## Installation
-We use ```python>=3.10```. Navigate to the root of the package and execute the following commands.
+We use ```python>=3.10```. To install, navigate to the root of the package and execute the commands listed below.
 - Install required packages with
 
 ```bash
