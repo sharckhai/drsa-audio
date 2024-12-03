@@ -1,11 +1,11 @@
 import os
 import random
+
 import numpy as np
 import torch
 import pickle
 from tqdm import tqdm
 from scipy.stats import ortho_group
-
 from zennit.rules import WSquare, Gamma, Epsilon
 
 from cxai.model.create_model import VGGType
@@ -17,24 +17,33 @@ from cxai.utils.evaluation import get_best_run
 from cxai.utils.constants import CLASS_IDX_MAPPER, CLASS_IDX_MAPPER_TOY
 
 
+def concept_flipping(
+    model, 
+    input_batch, 
+    name_map, 
+    layer_idx, 
+    path_to_U, 
+    num_concepts=4, 
+    standard_r=False, 
+    case=None, 
+    device=torch.device('cpu')
+) -> None:
+    """Function to perform concept patch flipping if model and optimized projection matrices are provided. 
 
-def concept_flipping(model, input_batch, name_map, layer_idx, path_to_U, num_concepts=4, standard_r=False, case=None, device=torch.device('cpu')):
-    r"""
-    Function to perform concept patch flipping if model and optimized projection matrices are provided. 
     Class cf_core performs flipping, this function loads the projection matrix and calculates mean scores.
-    -----    
+
     Args:
         model       (nn.Sequential): Neural network to perform concept patch flipping on
         input_batch (torch.Tensor): Balanced tensor of datasamples of each class in consecutiove order
         name_map    (dict): name_map fpr zennit composite
         layer_idx   (int): Layer index to insert projection matrix Q
         path_to_Qs  (str): Path to root folder that contains the optimized projection matrices
+
     Returns:
         aupc_scores_per_instance        (np.ndarray): AUPC scores
         averaged_pertubed_predictions   (np.ndarray): Averaged prediction logits for plotting
         flips_per_perturbation_step     (np.ndarray): Patches flipped at each step
     """
-
     if isinstance(input_batch, np.ndarray): input_batch = torch.tensor(input_batch)
 
     class_idx_mapper = CLASS_IDX_MAPPER if case != 'toy' else CLASS_IDX_MAPPER_TOY
@@ -72,12 +81,22 @@ def concept_flipping(model, input_batch, name_map, layer_idx, path_to_U, num_con
     # flip whole batch (all classes)
     #with HiddenPrints():
     aupc_scores_per_instance, averaged_pertubed_predictions, flips_per_perturbation_step = flipper(forward_func, input_batch, subspace_heatmaps)
- 
     return aupc_scores_per_instance, averaged_pertubed_predictions, flips_per_perturbation_step
 
      
-def interclass_concept_flipping(model, input_batch, name_map, path_to_U, case=None, standard_r=False, toy=False, num_concepts=4, device=torch.device('cpu')):
-    r"""
+def interclass_concept_flipping(
+    model, 
+    input_batch, 
+    name_map, 
+    path_to_U, 
+    case=None, 
+    standard_r=False, 
+    toy=False, 
+    num_concepts=4, 
+    device=torch.device('cpu')
+) -> None:
+    """Flip concepts between classes.
+
     Goal: 
     We want to know disentanglement power of the class specific concepts of a class.
     Since concepts of different classes look similar at first sight.
@@ -85,20 +104,20 @@ def interclass_concept_flipping(model, input_batch, name_map, path_to_U, case=No
     Solution:
     Generate subspace heatmaps for samples of a target class by aggregating subspace heatmaps generated with Q of each genre.
     We hope disentanglement, i.e. AUPC, is smallest for Q of target class.
-    -----
+    
     Args:
         model       (nn.Sequential): Neural network to perform concept patch flipping on
         input_batch (torch.Tensor): Balanced tensor of datasamples of each class in consecutiove order
         name_map    (dict): name_map fpr zennit composite
         layer_idx   (int): Layer index to insert projection matrix Q
         path_to_Qs  (str): Path to root folder that contains the optimized projection matrices
+    
     Returns:
         aupcs_per_class (np.ndarray): Shape: [n_classes, n_classes]
                                       - Columns correspond to genre that got attributed
                                       - Rows correspond to genre of projection matrix that got inserted
                                       Order is accoriding to order in CLASS_IDX_MAPPER
     """
-
     if isinstance(input_batch, np.ndarray): input_batch = torch.tensor(input_batch)
 
     class_idx_mapper = CLASS_IDX_MAPPER if not toy else {'class1': 0, 'class2': 1}
@@ -134,17 +153,13 @@ def interclass_concept_flipping(model, input_batch, name_map, path_to_U, case=No
 
             # loop that aggregates subspace heatmaps of each genre
             for j, genre_to_attribute in enumerate(class_idx_mapper.keys()):
-
                 # pop-popQ, metal-popQ, disco-popQ, ...
-
                 # extract samples of each class in each iteration
                 class_batch = input_batch[i*samples_per_class:(i+1)*samples_per_class].clone().detach().to(device)
-
                 # init heatmap generator
                 # instanciate heatmap generator
                 generator = HeatmapGenerator(model, U, name_map, sample_class=genre_to_attribute, num_concepts=num_concepts, layer_idx=layer_idx, case=case, device=device)
                 class_subspace_heatmaps = generator.generate_subspace_heatmaps(class_batch, concept_flipping=True)
-
                 subspace_heatmaps.append(class_subspace_heatmaps)
 
                 del generator
@@ -158,26 +173,19 @@ def interclass_concept_flipping(model, input_batch, name_map, path_to_U, case=No
             # class_aupcs is of shape [num_classes,]
             aupcs.append(class_aupcs)
 
-
         # [num_classes, num_classes]
         aupcs_per_class = np.stack(aupcs, axis=0)
-
         all.append(aupcs_per_class)
-
         # TODO: dont need delta for intra class comparison. Only if we want to perform interclass comparison. 
         # Maybe later first try like this and postprocessing in notebook.
-
     return all
 
 
-def load_projection_matrix(genre, layer_idx, path, device=torch.device('cpu')):
-                
+def load_projection_matrix(genre, layer_idx, path, device=torch.device('cpu')):       
     # get best of 3 runs
     _, _, _, path_to_best_run, _ = get_best_run(os.path.join(path, f'{genre}/layer{layer_idx}'))
-
     with open(os.path.join(path_to_best_run, 'projection_matrix.pkl'), 'rb') as file:
             U = pickle.load(file)
-
     return torch.tensor(U, device=device)
 
 
@@ -230,31 +238,54 @@ def sample_random_Q(dim, device=torch.device('cpu')):
     return torch.tensor(Q, device=device)
 
 
-def perform_cf(model, input_batch, name_map, out, path=None, layer_idcs=[1,4,7,10,13], 
-               num_concepts=[2,4,8,16], toy=False, prefix='', device=torch.device('cpu')):
-    r"""
-    This function calculates the aupcs per class at different layers for different number of subspaces
+def perform_cf(
+    model, 
+    input_batch, 
+    name_map, 
+    out, 
+    path=None, 
+    layer_idcs=[1,4,7,10,13], 
+    num_concepts=[2,4,8,16], 
+    toy=False, 
+    prefix='', 
+    device=torch.device('cpu')
+) -> None:
+    """This function calculates the aupcs per class at different layers for different number of subspaces
 
     saves evaluation data to pickle files. pickle files are named after the configuration (concepts, layer_idx)
     and contain aupc scores per instance for each class.
 
     -> AUPC array has shape [num_classes, samples_per_class]
     """
-
     dims = [32, 32, 64, 64, 128] if not toy else [8, 8, 16, 16, 16]
 
     for k in num_concepts:
-
         for i, layer_idx in enumerate(layer_idcs):
 
             print(f'Performing concept patch flipping for {k} subspaces at layer {layer_idx}')
 
             if prefix == 'random':
-                aupc_scores_per_instance, _, _, _ = cf_random_subspace(model, input_batch, name_map, layer_idx, 
-                                                                    dim=dims[i], device=device, permutations=3, num_concepts=k)            
+                aupc_scores_per_instance, _, _, _ = cf_random_subspace(
+                    model, 
+                    input_batch, 
+                    name_map, 
+                    layer_idx, 
+                    dim=dims[i], 
+                    device=device, 
+                    permutations=3, 
+                    num_concepts=k
+                )            
             else:    
                 aupc_scores_per_instance, _, _, _ = \
-                    concept_flipping(model, input_batch, name_map, layer_idx, os.path.join(path, f'{k}_concepts'), num_concepts=k, device=device)
+                    concept_flipping(
+                        model, 
+                        input_batch, 
+                        name_map, 
+                        layer_idx, 
+                        os.path.join(path, f'{k}_concepts'), 
+                        num_concepts=k, 
+                        device=device
+                    )
             
             conf_out = os.path.join(out, f'{prefix}/{k}_concepts')
             if not os.path.exists(conf_out): os.makedirs(conf_out)
@@ -263,18 +294,23 @@ def perform_cf(model, input_batch, name_map, out, path=None, layer_idcs=[1,4,7,1
                 pickle.dump(np.stack(aupc_scores_per_instance, axis=0), f)
 
 
-
-def sep_and_peak(model, input_batch, name_map, out, path=None, layer_idcs=[1,4,7,10,13], 
-               num_concepts=[2,4,8,16], toy=False, prefix='', device=torch.device('cpu')):
-    r"""
-    Compute seperability and peakness.
+def sep_and_peak(
+        model, 
+        input_batch, 
+        name_map, 
+        out, 
+        path=None, 
+        layer_idcs=[1,4,7,10,13], 
+        num_concepts=[2,4,8,16], 
+        toy=False, 
+        prefix='', 
+        device=torch.device('cpu')
+    ) -> None:
+    """Compute seperability and peakness.
     NOTE: under development
     """
-
     dims = [32, 32, 64, 64, 128] if not toy else [8, 8, 16, 16, 16]
-
     all = []
-
     for k in num_concepts:
         sep = []
         seperr = []
@@ -286,16 +322,29 @@ def sep_and_peak(model, input_batch, name_map, out, path=None, layer_idcs=[1,4,7
             print(f'Performing concept patch flipping for {k} subspaces at layer {layer_idx}')
 
             if prefix == 'random':
-                RU = cf_random_subspace(model, input_batch, name_map, layer_idx, 
-                                                                    dim=dims[i], device=device, permutations=3, num_concepts=k)            
+                RU = cf_random_subspace(
+                    model, 
+                    input_batch, 
+                    name_map, 
+                    layer_idx, 
+                    dim=dims[i], 
+                    device=device, 
+                    permutations=3, 
+                    num_concepts=k
+                )            
             else:    
                 RU = \
-                    concept_flipping(model, input_batch, name_map, layer_idx, os.path.join(path, prefix, f'{k}_concepts'), num_concepts=k, device=device)
-                
-
+                    concept_flipping(
+                        model, 
+                        input_batch, 
+                        name_map, 
+                        layer_idx, 
+                        os.path.join(path, prefix, f'{k}_concepts'), 
+                        num_concepts=k, 
+                        device=device
+                    )
             # b, cons, x, y
             frob_score = frob(RU, num_concepts)
-                
             seperability_scores = (np.max(RU,1).sum((-2,-1)) - np.max(RU.sum((-2,-1)), 1)).squeeze()
             seperability = seperability_scores.mean()
             sep_stnd_err = seperability / np.sqrt(seperability_scores.shape[0])
@@ -342,13 +391,9 @@ def frob(RU, num_concepts):
     # We mask out unwanted pairs (self-pairs and upper triangle)
     mask = np.triu(np.ones((num_concepts, num_concepts), dtype=bool), k=1)
     total_fro_norms = np.sum(fro_norms[:, mask], axis=-1)
-    
     combinations = num_concepts*(num_concepts-1)/2
-
     return total_fro_norms.mean() / combinations
-
-
-            
+       
 # use for cuda
 def main():
 

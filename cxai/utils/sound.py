@@ -6,18 +6,24 @@ import torchaudio
 
 from cxai.utils.utilities import round_down
 
-def get_slice(wav, slice_length: int = 6, start_point: int = 0, num_chunks: int = 1, sample_rate: int = 16000) -> torch.Tensor:
+def get_slice(
+    wav: torch.Tensor, 
+    slice_length: int = 6, 
+    start_point: int = 0, 
+    num_chunks: int = 1, 
+    sample_rate: int = 16000
+) -> torch.Tensor:
     """Extracts evenly spaced slices (if num_chunks > 1) from an audio signal (wav).
 
-    -----
     Args:
-        wav                 (torch.Tensor): audio signal
-        slice_length        (int): slice length in seconds of each extracted snippet
-        start_point         (int): start point in seconds to extract a snippet (only used if num_chunks==1)
-        num_chunks          (int): nu,ber of snippets that should be extracted from the audio
-        sample_raate        (int): sample rate with which wav was sampled
+        wav (torch.Tensor): Audio signal.
+        slice_length (int): Slice length in seconds of each extracted snippet from the music sample.
+        start_point (int): Start point in seconds to extract a snippet (only used if num_chunks==1).
+        num_chunks (int): Number of snippets that should be extracted from the audio.
+        sample_rate (int): Sample rate of the audio file.
+
     Returns:
-        wav_sample_sliced   (torch.Tensor): sliced instance. Can be single snippet or multiple snippets.
+        wav_sample_sliced (torch.Tensor): sliced instance. Can be single snippet or multiple snippets.
     """
 
     wav = torch.tensor(wav) if not isinstance(wav, torch.Tensor) else wav
@@ -42,10 +48,10 @@ def rms_normalizer(wav: torch.Tensor, rms_db: int = 0) -> torch.Tensor:
     """Function to normalize audios in wave-format by rms. (Not usual root-mean-square). Rms is specific for audio data.
     This function essentially scales all audios to some reference dB value such that the loadness of all songs is identical.
     
-    -----
     Args:
         wav (torch.Tensor): Audio snippet in wave-format.
         rms_db (int): Reference value in dB to scale audio data.
+        
     Returns:
         scaled_wav (torch.Tensor): Scaled wav tensor.
     """

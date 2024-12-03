@@ -8,16 +8,9 @@ from zennit.image import imgify
 from zennit.cmap import ColorMap
 
 
-# TODO: look at plot functions in notebooks and update this file
-
-
 def vis_heatmap(relevance, vmin=None, vmax=None, scaling_factor=3, cmap=None, case=None):
-    r"""
-    Heatmap visualization.
-    """
-
+    """Heatmap visualization."""
     relevance = relevance.detach().cpu().numpy() if type(relevance) == torch.Tensor else relevance
-
     # mirror the rows of relevances because mel-spectrograms contain first mel bin as first row (so highest frequency is in lowest row)
     # when plotting one sets plt.imshow(ORIGIN='LOWER'), so first row is displayed in lowest row of the plot
     relevance = np.flip(relevance, axis=[-2])
@@ -39,29 +32,20 @@ def vis_heatmap(relevance, vmin=None, vmax=None, scaling_factor=3, cmap=None, ca
 
     # resize image
     new_size = (img.size[0]*scaling_factor, img.size[1]*scaling_factor)
-
     return img.resize(new_size).convert('RGB')
 
 
-
-#################################### Audio visualization
+# Audio visualization
 
 def plot_spectrogram(mel, ax=None, sr=16000, case=None, n_c=4, colorbar=True):
-    '''
-    Plots spectrogram
+    """Plots spectrogram.
 
-    Parameters
-    ----------
-    spectrogram: torch.Tensor
-        spectrogram in any form (mel-spectrogram, dB, ...)
-    sr: int
-        sample rate
-    title: string
-        title for plot
-    '''
-
+    Args:
+        spectrogram (torch.Tensor): spectrogram in any form (mel-spectrogram, dB, ...)
+        sr (int): sample rate
+        title (string): title for plot
+    """
     mel = mel.squeeze()
-
     # to numpy for pyplot
     if not isinstance(mel, np.ndarray):
         mel = mel.numpy()
@@ -70,7 +54,6 @@ def plot_spectrogram(mel, ax=None, sr=16000, case=None, n_c=4, colorbar=True):
     frequencies = [512, 1024, 2048, 4096]
     # convert freqs to mel bins
     mel_bins = librosa.hz_to_mel(frequencies)
-
     
     if ax is None:
         fig, ax = plt.subplots()
@@ -111,13 +94,13 @@ def plot_spectrogram(mel, ax=None, sr=16000, case=None, n_c=4, colorbar=True):
 
 
 def plot_waveform(wav, sample_rate=16000):
-    '''
-    Plots waveform audio
-    -----
+    """Plots waveform audio.
+
     Args:
         wav (torch.Tensor): audio wav
         sample_rate (int): sample rate of the provided audio
-    '''
+    """
+    
     # tranform to numpy and extract shape if data
     if not isinstance(wav, np.ndarray):
         wav = wav.numpy()
@@ -138,10 +121,7 @@ def plot_waveform(wav, sample_rate=16000):
 
 
 def plot_aupcs(aupc_scores, averaged_pertubed_prediction_logits, flips_per_perturbation_step, title='EpsGammaWSquare'):
-    r"""
-    PixelFlipping evaluation.
-    """
-
+    """PixelFlipping evaluation."""
     for key in aupc_scores:
         # get data for each configuration 
         x_flipped_patches = np.cumsum(np.array(flips_per_perturbation_step)) / np.array(flips_per_perturbation_step).sum() * 100
@@ -162,10 +142,7 @@ def plot_aupcs(aupc_scores, averaged_pertubed_prediction_logits, flips_per_pertu
         plt.grid(ls=':', alpha=0.5)
         plt.legend()
 
-
-
 #################################### Model evaluation
-
 
 def plot_acc(df, compare_models=False, legend=True, valid_key = 'valid_acc'):
 
@@ -196,10 +173,7 @@ def plot_loss(df, train_key='train_loss', valid_key='valid_losses'):
     print('%15s: %6.4f (epoch: %4d)' % ('Min loss', min(df[valid_key]), np.argmin(df[valid_key])))
     print('%15s: %6.4f (epoch: %4d)' % ('Final loss', list(df[valid_key])[-1], len(df)))
 
-
-
 #################################### DRSA evaluation
-
 
 def plot_runs(path, runs=1):
     stats = []

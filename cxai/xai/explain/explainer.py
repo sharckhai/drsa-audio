@@ -27,8 +27,6 @@ class HeatmapGenerator:
         num_concepts (int): Number of subspaces that were optimized.
         class_idx (int): Index of the class to attribute.
         num_classes (int): Total number of classes.
-        
-
     """
 
     def __init__(
