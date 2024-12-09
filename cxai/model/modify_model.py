@@ -16,15 +16,24 @@ class ProjectionModel(nn.Module):
     which is kind of haccky but safes a lot of memory and time.
     """
 
-    def __init__(self, 
-                 model: nn.Sequential, 
-                 layer_idx: int, 
-                 U: torch.Tensor, 
-                 num_concepts: int, 
-                 case: str = 'gtzan'
-                 ) -> None:
-        super().__init__()
+    def __init__(
+        self, 
+        model: nn.Sequential, 
+        layer_idx: int, 
+        U: torch.Tensor, 
+        num_concepts: int, 
+        case: str = 'gtzan'
+    ) -> None:
+        """Init model new model with projectionlayers.
 
+        Args:
+            model (nn.Sequential): Model.
+            layer_idx (int): Index of layer where we optimized U.
+            U (torch.Tensor): Projection matrix that maps activations onto relevant concepts.
+            num_concepts (int): Number of concepts that were optimized.
+            case (str): 'gtzan' or 'toy'.
+        """
+        super().__init__()
         # set precalculated flat features between feature extractor and classifier
         self.num_flat_features = 2048 if case == 'gtzan' else 64
 
@@ -45,7 +54,6 @@ class ProjectionModel(nn.Module):
         for idx, layer in enumerate(model.classifier.children()):
             self.classifier.add_module(str(idx), layer)
 
-
     def forward(self, x):
         x = self.features(x)
         x = x.view(-1, self.num_flat_features)
@@ -53,9 +61,10 @@ class ProjectionModel(nn.Module):
 
 
 class SubspaceFilter(nn.Module):
-    """We could filter relevances with the defined hook on the InvProjection Layer, 
-    but for convenience we introduce a filter layer."""
-
+    """Layer to pass on activations.
+    
+    Purpose of this layer is to register a backward hook, that filters the gradients (=relevances when using LRP
+    propagation rules) according to subspaces."""
     def __init__(self) -> None:
         super(SubspaceFilter, self).__init__()
 
@@ -68,69 +77,56 @@ class Projection(nn.Module):
     
     - U has shape [d, d]
     - activation_maps have shape [b, d, filter_height, filter_width]
-    - h has shape [batch, n, n_concepts, d_k]
-    with n = filter_height * filter_width
+    - h has shape [batch, n, n_concepts, d_k] with n = filter_height * filter_width
     """
-
     def __init__(self, U: torch.Tensor, num_concepts: int) -> None:
         super(Projection, self).__init__()
-
         # U shape [d, d]
         self.U = U
         self.num_concepts = num_concepts
         self.d_k = self.U.size(0) // self.num_concepts
 
-
     def forward(self, act_map: torch.Tensor) -> torch.Tensor:
-
         # reshape act_vecs to [batch, n, d]
         act_vecs = act_map.view(act_map.size(0), act_map.size(1), -1).transpose(-2,-1).contiguous()
-
         # [batch, n, d]
         h = torch.matmul(act_vecs, self.U)
-
         # [batch, n, n_concepts, d_k]
         h = h.view(h.size(0), h.size(1), self.num_concepts, self.d_k)
         return h
     
 
 class InvProjection(nn.Module):
-    """Projects supspaces h_k onto recovered activations a'
+    """Projects supspaces h_k onto recovered activations a'.
     
     - U has shape [d, d]
     - h has shape [batch, n, n_concepts, d_k]
     - activation_maps have shape [b, d, filter_height, filter_width]
     """
-
     def __init__(self, U: torch.Tensor, num_concepts: int) -> None:
         super(InvProjection, self).__init__()
-
         self.U_inv = U.T
         self.num_concepts = num_concepts
         self.d = self.U_inv.size(0)
         self.d_k = self.d // self.num_concepts
-        
 
     def forward(self, h: torch.Tensor) -> torch.Tensor:
-
         # h shape [batch, n, num_concepts, d_k]
         b, n, _, _ = h.size()
-
         # [batch, n, d]
         h = h.view(b, n, self.d)
-
         # inverse projection, [batch, n, d]
         a_ = torch.matmul(h, self.U_inv)
-        
         # [batch, d, filter_height, filter_width]
         filter_height = filter_width = int(n**.5)
         a_ = a_.transpose(-2,-1).view(b, self.d, filter_height, filter_width).contiguous()
         return a_
-    
+
+
+# currently not used
 
 class DifferentialLayer(nn.Module):
     """Defines special layer for LRP operation. See paper 2017, LRP overview."""
-
     def __init__(self, weights, bias, device=torch.device('mps')):
         super(DifferentialLayer, self).__init__()
         self.device = device
@@ -151,7 +147,6 @@ class DifferentialLayer(nn.Module):
 
 class ReverseLogSumExp(nn.Module):
     """Defines special layer for LRP operation. See paper 2017, LRP overview."""
-
     def __init__(self):
         super(ReverseLogSumExp, self).__init__()
         #self.device = device

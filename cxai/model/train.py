@@ -1,7 +1,7 @@
 import os
 import random
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List
 
 import pandas as pd
 import torch
@@ -55,6 +55,7 @@ def fit(
 
     train_losses, valid_losses, train_acc, valid_acc = [], [], [], []
     tbar = tqdm(range(1, num_epochs+1))
+
     # start main training loop
     for epoch in tbar:
         # iterate train and validation pahse in each epoch
@@ -70,27 +71,25 @@ def fit(
             for xb, yb in dataloaders[phase]:
                 xb, yb = xb.to(device), yb.to(device)
                 
-                if is_gtzan:
-                    # reshape validation chunk lables (see dataset for more information)
-                    if phase == 'valid':
-                        if xb.dim() == 5:
-
-                            # TODO: repeat labels in dataset for speed up
-
-                            # case GTZAN, test data is of the form (batch x chunks x channel x mel-bins x time-bins), 
-                            # this is because for testing 
-                            # we dont extract one random slice of an audio but slice each audio in num_chunks chunks
-                            _, chunks, c, f, t = xb.size() # b=batch
-                            yb = yb.repeat_interleave(chunks)
-                        else:
-                            # case toy data
-                            _, c, f, t = xb.size()
-
-                        xb = xb.view(-1, c, f, t)
-
+                if phase == 'valid':
+                    if is_gtzan:
+                        # case GTZAN, test data is in the form (batch x chunks x channel x mel-bins x time-bins)
+                        b, chunks, c, f, t = xb.size()
+                        yb = yb.view(-1, chunks*b)
+                    else:
+                        # case toy data
+                        _, c, f, t = xb.size()
+                    xb = xb.view(-1, c, f, t)
+                    
                 with torch.set_grad_enabled(phase == 'train'):
-                    loss, acc = loss_batch(model, loss_func, xb, yb, opt=optimizer, phase=phase)
-
+                    loss, acc = loss_batch(
+                        model, 
+                        loss_func, 
+                        xb, 
+                        yb, 
+                        opt=optimizer, 
+                        phase=phase
+                    )
                 # log stats
                 running_loss += loss
                 running_acc += acc
@@ -108,46 +107,103 @@ def fit(
                 train_loss = epoch_loss
                 train_acc_ = epoch_acc
         
-        #if epoch%50 == 0:
-        tbar.set_description(f'TRAIN acc: {train_acc_*100:.2f}% - loss: {train_loss:.4f}  || VALID acc: {epoch_acc*100:.2f}% - loss: {epoch_loss:.4f}')
-
+        # Create tbar description
+        descr = f'TRAIN acc: {train_acc_*100:.2f}% - loss: {train_loss:.4f}'
+        descr += f' || VALID acc: {epoch_acc*100:.2f}% - loss: {epoch_loss:.4f}'
+        tbar.set_description(descr)
         #current_lr = scheduler.get_last_lr()[0]
     
         # deep copy the model
         if epoch % save_step == 0:
-            save_checkpoint(model_path, model.state_dict(), optimizer.state_dict(), epoch=epoch+from_epoch, from_epoch=from_epoch)
-            save_train_stats(model_path, train_losses, train_acc, valid_losses, valid_acc, from_epoch)
+            save_checkpoint(
+                model_path, 
+                model.state_dict(), 
+                optimizer.state_dict(), 
+                epoch=epoch+from_epoch, 
+            )
+            save_train_stats(
+                model_path, 
+                train_losses, 
+                train_acc, 
+                valid_losses, 
+                valid_acc,
+                from_epoch
+            )
 
-    #return train_stats, model_path
 
-def loss_batch(model: nn.Module, loss_func, xb, yb, opt, phase='train'):
+def loss_batch(
+    model: nn.Module, 
+    loss_func: callable, 
+    xb: torch.Tensor, 
+    yb: torch.Tensor, 
+    optimizer: torch.optim.Optimizer, 
+    phase: str = 'train'
+) -> float:
+    """Computes loss of batch and backpropagates if phase=='train'.
+    
+    Args:
+        model (nn.Module): Neural network model.
+        loss_func (nn.Module): Loss function.
+        xb (torch.Tensor): Batch input samples. 
+        yb (torch.Tensor): Batch labels.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        phase (str): Phase ('train' or 'valid').
 
+    Returns:
+        tuple: A tuple containing:
+            - loss (float): Loss.
+            - acc (float): Accuracy.
+    """
+    # propagate batch through model
     out = model(xb)
+    # compute loss
     loss = loss_func(out, yb)
     
     if phase == 'train':
         loss.backward()
         #clip_grad_norm_(model.parameters(), max_norm=1.0)
-        opt.step()
-        opt.zero_grad()
+        optimizer.step()
+        optimizer.zero_grad()
 
+    # get predicted labels
     _, pred = torch.max(out, dim=1)
+    # calc accuracy
     acc = torch.sum(pred==yb.data) / yb.size(0)
     return float(loss.item()), float(acc.detach().cpu())
 
-def save_checkpoint(model_path, model_state, opt_state, epoch, from_epoch):
+
+def save_checkpoint(
+    model_path: str, 
+    model_state, 
+    opt_state, 
+    epoch: int
+) -> None:
     """Save model .pth file and train stats every 50 epochs."""
     torch.save({
-            'model_state_dict': model_state,
-            'opt_state_dict': opt_state,
-            'random_rng_state': random.getstate(),
-            'torch_rng_state': torch.get_rng_state(),
-            'numpy_rng_state': np.random.get_state(),
-        }, os.path.join(model_path, 'best_model_%s.pth' % epoch))
+        'model_state_dict': model_state,
+        'opt_state_dict': opt_state,
+        'random_rng_state': random.getstate(),
+        'torch_rng_state': torch.get_rng_state(),
+        'numpy_rng_state': np.random.get_state(),
+    }, os.path.join(model_path, 'best_model_%s.pth' % epoch))
 
-def save_train_stats(path_to_model, train_losses, train_acc, valid_losses, valid_acc, from_epoch):
+
+def save_train_stats(
+        path_to_model: str, 
+        train_losses: List[float], 
+        train_acc: List[float], 
+        valid_losses: List[float], 
+        valid_acc: List[float], 
+        from_epoch: int
+    ) -> None:
+    """Log train stats."""
     # just overwrite the train stats csv with the new train stats
-    df_train_stats = pd.DataFrame({'train_loss': train_losses, 'train_acc': train_acc, 'valid_losses': valid_losses, 'valid_acc': valid_acc})
+    df_train_stats = pd.DataFrame({
+        'train_loss': train_losses, 
+        'train_acc': train_acc, 
+        'valid_losses': valid_losses, 
+        'valid_acc': valid_acc
+    })
     df_train_stats.to_csv(os.path.join(path_to_model, 'train_stats_%d.csv' % from_epoch))
 
 
@@ -236,10 +292,21 @@ def main(args):
                         #random.seed(42)
                         #torch.manual_seed(42)
                         # create model
-                        #model = VGGType(n_filters=conf[0], n_dense=conf[1], pool_kernels=conf[2], dropout=dropout, input_size=input_size, conv_bn=conv_bn)
-                        model_path = os.path.join(path_to_models, '6s_gtzan', f'{str(conf[:2])}_BN', f'dr{dropout}_lr{lr}_bs{batch_size}_wd{weight_decay}_mm{momentum}')
+                        model_path = os.path.join(
+                            path_to_models, 
+                            '6s_gtzan', 
+                            f'{str(conf[:2])}_BN', 
+                            f'dr{dropout}_lr{lr}_bs{batch_size}_wd{weight_decay}_mm{momentum}'
+                        )
                         # create model
-                        model = VGGType(n_filters=conf[0], n_dense=conf[1], pool_kernels=conf[2], dropout=dropout, input_size=input_size, n_classes=10)
+                        model = VGGType(
+                            n_filters=conf[0], 
+                            n_dense=conf[1], 
+                            pool_kernels=conf[2], 
+                            dropout=dropout, 
+                            input_size=input_size, 
+                            n_classes=10
+                        )
                         # Load states from checkpoint
                         checkpoint = torch.load(os.path.join(model_path, 'best_model_1500.pth'), map_location=torch.device('cuda'))
                         model.load_state_dict(checkpoint['model_state_dict'])
@@ -249,10 +316,12 @@ def main(args):
                         model.to(device)
 
                         # get data loaders
-                        trainloader, validloader  = get_data_loaders(data_path=path_to_data, batch_size=batch_size, n_mels=mel_values["n_mels"], 
-                                                                    n_fft=mel_values["n_fft"], hop_length=mel_values['hop_length'], slice_length=mel_values["slice_length"],
-                                                                    num_chunks=mel_values["num_chunks"], valid_fold=validation_fold, wav_normalization=wav_normalization,
-                                                                    mel_normalization=mel_normalization, num_workers=num_workers)
+                        trainloader, validloader  = get_data_loaders(
+                            data_path=path_to_data, 
+                            batch_size=batch_size, 
+                            valid_fold=validation_fold,
+                            num_workers=num_workers
+                        )
                         dataloaders = {'train': trainloader, 'valid': validloader}
 
                         # Define opt etc
@@ -273,8 +342,18 @@ def main(args):
                         print('-'*5)
 
                         # Train model
-                        fit(model=model, loss_func=loss_fn, optimizer=optimizer, dataloaders=dataloaders, 
-                            num_epochs=num_epochs, device=device, scheduler=scheduler, model_path=model_path, save_step=100, from_epoch=1500)
+                        fit(
+                            model=model, 
+                            loss_func=loss_fn, 
+                            optimizer=optimizer, 
+                            dataloaders=dataloaders, 
+                            num_epochs=num_epochs, 
+                            device=device, 
+                            scheduler=scheduler, 
+                            model_path=model_path, 
+                            save_step=100, 
+                            from_epoch=1500
+                        )
                         
                         # get test accuracy (validation accuracy in case of k-fold)
                         #acc, _, _ = get_acc(model, testloader=validloader, is_toy=False, device=torch.device('mps'))

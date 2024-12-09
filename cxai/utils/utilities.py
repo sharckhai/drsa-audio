@@ -3,15 +3,15 @@ import sys
 import math
 
 
-def round_down(n: float, decimalpoints: int):
+def round_down(n: float, decimalpoints: int) -> float:
     """Custom function to round down to a given number of decimalpoints.
     
-    -----
     Args:
-        n (float): number to round.
-        decimalpoints (int): number of decimalpoitns to round number to.
+        n (float): Number to round.
+        decimalpoints (int): Number of decimalpoitns to round number to.
+
     Returns:
-        rounded_number (float): down-rounded number
+        rounded_number (float): Number which is rounded down to the defined decimal point.
     """
     return math.floor(n * 10**decimalpoints) / 10**decimalpoints
 
